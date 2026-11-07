@@ -7,7 +7,7 @@ import {
   addMove, deleteMove, deletePreview, emptyRep,
 } from "./repertoire.js";
 
-const VERSION = "2026-11-07 d";
+const VERSION = "2026-11-07 e";
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -287,7 +287,13 @@ class Trainer {
 
   async opponentMove(step) {
     const m = this.verbose(step.uci);
-    this.status(`Przeciwnik: ${step.san}`, this.physical() ? "Przestaw bierki przeciwnika (świecą się na planszy)." : "");
+    const side = this.rep.color === "w" ? "czarne" : "białe";
+    this.status(
+      `Przeciwnik (${side}): ${step.san}`,
+      this.physical()
+        ? `Przestaw bierkę przeciwnika: ${m.from}→${m.to} (świeci na planszy${peg.rotated ? " — kieruj się diodami, nadruki są odwrócone" : ""}).`
+        : ""
+    );
     if (this.physical()) {
       peg.leds(moveSquares(m));
       this.show({ arrows: [{ from: m.from, to: m.to, c: "B" }] });
@@ -346,7 +352,7 @@ class Trainer {
       if (this.physical()) peg.leds(moveSquares(m));
       this.status(`Poprawnie: ${step.san}`, "Zagraj ten ruch.", "bad");
     };
-    this.status("Twój ruch", alts.length > 1 ? `W tej pozycji masz ${alts.length} ruchy w repertuarze.` : "");
+    this.status(`Twój ruch (${this.rep.color === "w" ? "białe" : "czarne"})`, alts.length > 1 ? `W tej pozycji masz ${alts.length} ruchy w repertuarze.` : "");
     this.setComment(null);
     this.show();
     for (;;) {
