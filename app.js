@@ -9,13 +9,14 @@ import {
   addMove, deleteMove, deletePreview, emptyRep, validateBackup,
 } from "./repertoire.js";
 
-const VERSION = "2026-11-07 q";
+const VERSION = "2026-11-07 r";
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
 const peg = new Pegasus();
 const engine = new Engine();
+const trainAnalysis = { open: false, eval: true, db: true, fen: null };
 const settings = () => store.data.settings;
 
 const SAMPLE_PGN = `[Event "Przykład: włoska"]
@@ -122,6 +123,7 @@ class Trainer {
     }
     b.setHighlights({ last: last || this.lastMove, check, ...hl });
     b.setArrows(arrows);
+    if (document.body.dataset.view === "train") renderTrainAnalysis();
   }
 
   status(main, sub = "", tone = "") {
@@ -653,6 +655,12 @@ function whenText(t) {
 let trainBoard, browseBoard, trainer;
 
 function go(view) {
+  const previous = document.body.dataset.view;
+  if (previous !== view && (previous === "train" || previous === "browse")) {
+    engine.job++;
+    engine.stopLocal();
+    dbRequest++;
+  }
   $$(".view").forEach((v) => (v.hidden = v.id !== "view-" + view));
   $$("nav button[data-view]").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
   document.body.dataset.view = view;
@@ -825,7 +833,12 @@ async function doImport() {
 // --- trening
 
 function startTraining(rep, mode) {
+  trainer.rep = rep;
+  trainer.pos = new Chess(rep.nodes[rep.roots[0]]?.fen || START_FEN);
+  trainBoard.setPosition(trainer.pos.fen());
+  trainAnalysis.fen = null;
   go("train");
+  renderTrainAnalysis(true);
   $("#t-stop").textContent = "Zakończ";
   $("#t-stop").hidden = false;
   $("#t-back-rep").hidden = true;
@@ -835,6 +848,41 @@ function startTraining(rep, mode) {
     $("#t-mode").textContent = "Bez planszy — ruchy na ekranie (dotknij bierkę, potem pole).";
   else $("#t-mode").textContent = `Plansza: ${peg.device?.name || "Pegasus"}`;
   trainer.run(rep, mode);
+}
+
+function renderTrainAnalysis(force = false) {
+  const state = trainAnalysis;
+  $("#view-train").classList.toggle("analysis-open", state.open);
+  $("#t-analysis").hidden = !state.open;
+  $("#t-analysis-toggle").setAttribute("aria-expanded", String(state.open));
+  $("#t-analysis-toggle").textContent = state.open ? "Zamknij analizę" : "Baza i Stockfish";
+  $("#t-eval-toggle").setAttribute("aria-pressed", String(state.eval));
+  $("#t-db-toggle").setAttribute("aria-pressed", String(state.db));
+  $("#t-eval").hidden = !state.eval;
+  $("#t-db").hidden = !state.db;
+  if (!state.open) {
+    engine.job++;
+    engine.stopLocal();
+    dbRequest++;
+    return;
+  }
+  const fen = trainer.pos?.fen();
+  if (!fen) {
+    $("#t-eval").textContent = "Czekam na pozycję…";
+    $("#t-db-body").textContent = "Czekam na pozycję…";
+    return;
+  }
+  if (!force && state.fen === fen) return;
+  state.fen = fen;
+  const node = trainer.rep?.nodes[posKey(fen)] || { moves: {} };
+  const current = () => document.body.dataset.view === "train" && state.open && state.fen === fen;
+  if (state.eval) renderEvaluation(fen, node, $("#t-eval"), current, false);
+  else { engine.job++; engine.stopLocal(); }
+  if (state.db) {
+    const src = settings().dbSrc || "lichess";
+    $$("input[name=tdbsrc]").forEach((r) => (r.checked = r.value === src));
+    renderDatabase(fen, node, src, $("#t-db-body"), $("#t-db-opening"), current, false);
+  } else dbRequest++;
 }
 
 // --- edytor (przeglądanie, dodawanie, usuwanie, komentarze)
@@ -949,22 +997,26 @@ const fmtN = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + " mln" : n >= 1e4 ? Math.
 
 let dbRequest = 0;
 async function renderDb(chess, node) {
-  const request = ++dbRequest;
   const on = !!settings().dbOn;
   $("#b-db-toggle").setAttribute("aria-pressed", String(on));
   const box = $("#b-db");
   box.hidden = !on;
-  if (!on) return;
+  if (!on) { dbRequest++; return; }
   const src = settings().dbSrc || "lichess";
   $$("input[name=dbsrc]").forEach((r) => (r.checked = r.value === src));
-  const body = $("#b-db-body");
   const fen = chess.fen();
+  renderDatabase(fen, node, src, $("#b-db-body"), $("#b-db-opening"),
+    () => document.body.dataset.view === "browse" && fen === browse.chess?.fen(), true);
+}
+
+async function renderDatabase(fen, node, src, body, opening, isCurrent, interactive) {
+  const request = ++dbRequest;
   body.innerHTML = `<p class="muted small">Wczytuję…</p>`;
-  $("#b-db-opening").textContent = "";
+  opening.textContent = "";
   try {
     const d = await explore(fen, src, { ratings: settings().liRatings, speeds: settings().liSpeeds });
-    if (request !== dbRequest || fen !== browse.chess?.fen()) return;
-    $("#b-db-opening").textContent = d.opening ? `${d.opening.eco} ${d.opening.name}` : "";
+    if (request !== dbRequest || !isCurrent()) return;
+    opening.textContent = d.opening ? `${d.opening.eco} ${d.opening.name}` : "";
     if (!d.moves.length) {
       body.innerHTML = `<p class="muted small">Brak partii z tej pozycji w bazie ${src === "masters" ? "mistrzów" : "Lichess"}.</p>`;
       return;
@@ -973,14 +1025,14 @@ async function renderDb(chess, node) {
     const pct = (a, n) => (n ? Math.round((100 * a) / n) : 0);
     const row = (m) => {
       const w = pct(m.white, m.games), dr = pct(m.draws, m.games), b = 100 - w - dr;
-      return `<tr data-san="${esc(m.san)}"><td class="san">${esc(m.san)} ${inRep.has(m.san) ? `<span class="pill ok" title="w repertuarze">✓</span>` : ""}</td>
+      return `<tr${interactive ? ` data-san="${esc(m.san)}"` : ""}><td class="san">${esc(m.san)} ${inRep.has(m.san) ? `<span class="pill ok" title="w repertuarze">✓</span>` : ""}</td>
         <td class="num">${pct(m.games, d.total)}%</td><td class="num muted">${fmtN(m.games)}</td>
         <td><div class="wdl" title="białe ${w}% · remis ${dr}% · czarne ${b}%"><span class="w" style="width:${w}%">${w > 12 ? w + "%" : ""}</span><span class="d" style="width:${dr}%">${dr > 12 ? dr + "%" : ""}</span><span class="b" style="width:${b}%">${b > 12 ? b + "%" : ""}</span></div></td></tr>`;
     };
     body.innerHTML = `<table class="db-table">${d.moves.map(row).join("")}<tr class="db-total"><td>razem</td><td></td><td class="num">${fmtN(d.total)}</td><td></td></tr></table>`;
   } catch (e) {
-    if (request !== dbRequest || fen !== browse.chess?.fen()) return;
-    body.innerHTML = `<p class="small">${esc(e.message)}${e.code === "auth" ? ` <button class="ghost" data-go="settings">Ustawienia</button>` : ""}</p>`;
+    if (request !== dbRequest || !isCurrent()) return;
+    body.innerHTML = `<p class="small">${esc(e.message)}${e.code === "auth" && interactive ? ` <button class="ghost" data-go="settings">Ustawienia</button>` : ""}</p>`;
   }
 }
 
@@ -993,7 +1045,7 @@ function renderLichess() {
   $("#li-speeds").value = settings().liSpeeds || "blitz,rapid,classical";
 }
 
-// --- ocena silnika w edytorze
+// --- ocena silnika w edytorze i treningu
 
 function renderEval(chess, node) {
   const on = !!settings().evalOn;
@@ -1006,13 +1058,19 @@ function renderEval(chess, node) {
     return;
   }
   const fen = chess.fen();
+  renderEvaluation(fen, node, box,
+    () => document.body.dataset.view === "browse" && fen === browse.chess?.fen(), true);
+}
+
+function renderEvaluation(fen, node, box, isCurrent, interactive) {
+  const chess = new Chess(fen);
   if (chess.isGameOver()) {
     box.innerHTML = `<span class="eval-src">${chess.isCheckmate() ? "Mat." : "Koniec partii."}</span>`;
     return;
   }
   box.innerHTML = `<span class="eval-src">Liczę…</span>`;
   engine.analyse(fen, (res) => {
-    if (fen !== browse.chess?.fen()) return;
+    if (!isCurrent()) return;
     const inRep = new Set(Object.keys(node.moves));
     const lines = res.lines.map((l) => {
       const c = new Chess(fen);
@@ -1023,7 +1081,8 @@ function renderEval(chess, node) {
       if (!sans.length) return "";
       const first = l.pv[0];
       const txt = lineText(fen, sans).replace(/^(\d+\.(?:\.\.)? )?(\S+)/, (m0, num = "", mv) => `${num}<b>${esc(mv)}</b>`);
-      return `<button class="eval-line" data-ev="${first}"><span class="eval-score">${scoreText(l)}</span><span class="eval-pv">${txt}</span>${inRep.has(first) ? `<span class="pill ok" title="ruch jest w repertuarze">✓</span>` : ""}</button>`;
+      const tag = interactive ? "button" : "div";
+      return `<${tag} class="eval-line"${interactive ? ` data-ev="${first}"` : ""}><span class="eval-score">${scoreText(l)}</span><span class="eval-pv">${txt}</span>${inRep.has(first) ? `<span class="pill ok" title="ruch jest w repertuarze">✓</span>` : ""}</${tag}>`;
     });
     box.innerHTML =
       `<span class="eval-src">${esc(res.source)}${res.depth ? `, głębokość ${res.depth}` : ""}${res.pending ? " — liczę…" : ""}</span>` +
@@ -1286,6 +1345,23 @@ async function main() {
   $("#t-back-rep").addEventListener("click", leaveTraining);
   $("#t-hint").addEventListener("click", () => trainer.hintFor && trainer.hintFor());
   $("#t-flip").addEventListener("click", () => trainBoard.setOrientation(trainBoard.orientation === "w" ? "b" : "w"));
+  $("#t-analysis-toggle").addEventListener("click", () => {
+    trainAnalysis.open = !trainAnalysis.open;
+    renderTrainAnalysis(true);
+  });
+  $("#t-eval-toggle").addEventListener("click", () => {
+    trainAnalysis.eval = !trainAnalysis.eval;
+    renderTrainAnalysis(true);
+  });
+  $("#t-db-toggle").addEventListener("click", () => {
+    trainAnalysis.db = !trainAnalysis.db;
+    renderTrainAnalysis(true);
+  });
+  $$("input[name=tdbsrc]").forEach((r) => r.addEventListener("change", () => {
+    settings().dbSrc = r.value;
+    store.save();
+    renderTrainAnalysis(true);
+  }));
 
   $("#b-moves").addEventListener("click", (e) => {
     const d = e.target.closest("[data-del]");

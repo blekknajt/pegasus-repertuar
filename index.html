@@ -74,7 +74,10 @@
 
     <!-- trening -->
     <section id="view-train" class="view split" hidden>
-      <div id="t-nav-options" class="train-options" hidden><button id="t-from-start" class="accent" title="Ustaw pozycję początkową i rozegraj całą linię">Od początku</button></div>
+      <div class="train-tools">
+        <div id="t-nav-options" class="train-options" hidden><button id="t-from-start" class="accent" title="Ustaw pozycję początkową i rozegraj całą linię">Od początku</button></div>
+        <button id="t-analysis-toggle" class="ghost" type="button" aria-expanded="false" aria-controls="t-analysis">Baza i Stockfish</button>
+      </div>
       <div class="board-wrap"><div id="t-board"></div></div>
       <aside class="panel">
         <div class="panel-head">
@@ -97,6 +100,24 @@
           <button id="t-stop" class="ghost">Zakończ</button>
         </div>
       </aside>
+      <div id="t-analysis" class="train-analysis" hidden>
+        <div class="train-analysis-head">
+          <strong>Analiza bieżącej pozycji</strong>
+          <button id="t-eval-toggle" class="ghost" type="button" aria-pressed="true">Stockfish</button>
+          <button id="t-db-toggle" class="ghost" type="button" aria-pressed="true">Baza Lichess</button>
+        </div>
+        <div id="t-eval" class="eval"></div>
+        <div id="t-db" class="db">
+          <div class="db-head">
+            <fieldset class="seg small-seg">
+              <label><input type="radio" name="tdbsrc" value="lichess" checked> Lichess</label>
+              <label><input type="radio" name="tdbsrc" value="masters"> Mistrzowie</label>
+            </fieldset>
+            <span id="t-db-opening" class="muted small"></span>
+          </div>
+          <div id="t-db-body"></div>
+        </div>
+      </div>
     </section>
 
     <!-- edytor: szachownica stoi, przewija się tylko lista ruchów -->
