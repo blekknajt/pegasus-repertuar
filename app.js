@@ -9,7 +9,7 @@ import {
   addMove, deleteMove, deletePreview, emptyRep,
 } from "./repertoire.js";
 
-const VERSION = "2026-11-07 i";
+const VERSION = "2026-11-07 j";
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -179,7 +179,7 @@ class Trainer {
   }
 
   /** Czeka, aż zajętość pól zgodzi się z jedną z pozycji. Zwraca jej indeks. */
-  waitOcc(targets, { showDiffFor = 0, ledDiff = false, quietIf = null } = {}) {
+  waitOcc(targets, { showDiffFor = 0, ledDiff = false, quietIf = null, diffDelay = null } = {}) {
     const sets = targets.map((c) => occOf(c));
     // pozycja „jeszcze nic nie ruszone” — wtedy nie pokazuj różnic, tylko czekaj
     const quiet = quietIf && occOf(quietIf);
@@ -207,7 +207,7 @@ class Trainer {
           $("#t-sub").textContent =
             (missing.length ? `Brakuje bierki na: ${missing.join(" ")}. ` : "") +
             (extra.length ? `Zbędna bierka na: ${extra.join(" ")}.` : "");
-        }, ledDiff ? 1200 : 3500);
+        }, diffDelay ?? (ledDiff ? 1200 : 3500));
       };
       const h = () => check();
       peg.addEventListener("occ", h);
@@ -428,39 +428,35 @@ class Trainer {
   }
 
   /** Ustawia planszę w pozycji po `k` ruchach nowej linii (cofanie z diodami). */
+  /**
+   * Ustawia planszę w pozycji po `k` ruchach nowej linii: ekran pokazuje pozycję docelową,
+   * diody świecą na polach, które trzeba zmienić (na bieżąco). Przyjmuje też każdą wcześniejszą
+   * pozycję tej linii (np. ustawienie od zera) — brakujące ruchy zostaną potem podpowiedziane.
+   */
   async navigate(rootFen, steps, k) {
-    const ucis = steps.map((s) => s.uci);
-    const positions = this.positionsOf(rootFen, this.played);
-    let cur = this.played.length;
     if (!this.physical()) return k;
-    for (let first = true; ; first = false) {
-      const lim = Math.min(cur, k);
-      // pozycje, do których można dojść: od korzenia do bieżącej (potem już tylko wcześniejsze)
-      const targets = positions.slice(0, first ? cur + 1 : cur);
-      // przy ustawianiu: różnice względem celu; przy cofaniu: względem następnego kroku
-      const diffFor = this.synced ? targets.length - 1 : Math.min(lim, targets.length - 1);
-      const idx = await this.waitOcc(targets, { showDiffFor: diffFor, ledDiff: !this.synced, quietIf: first ? null : positions[cur] });
-      if (!this.synced) {
-        this.synced = true;
-        peg.leds([]);
-      }
-      cur = idx;
-      if (cur <= k) {
-        peg.leds([]);
-        this.played = this.played.slice(0, cur);
-        // jeżeli pozycja startowa planszy jest dalej niż wspólny odcinek, nic więcej nie trzeba
-        return Math.min(cur, ucis.length);
-      }
-      // cofnij ruch played[cur-1]
-      const before = positions[cur - 1];
-      const u = this.played[cur - 1];
-      const m = before.moves({ verbose: true }).find((x) => uciOf(x) === u);
-      peg.leds(moveSquares(m), { blink: 1 });
-      this.pos = new Chess(positions[cur].fen());
-      this.lastMove = null;
-      this.show({ arrows: [{ from: m.to, to: m.from, c: "Y" }] });
-      this.status(`Cofnij: ${m.san}`, `Wracamy ${cur - k} ${cur - k === 1 ? "ruch" : "ruchy"} do rozgałęzienia (miga na planszy).`, "warn");
+    const positions = this.positionsOf(rootFen, this.played);
+    const target = Math.min(this.played.length, k);
+    const occ = peg.occupied();
+    if (occ && setEq(occ, occOf(positions[target]))) {
+      this.played = this.played.slice(0, target);
+      this.synced = true;
+      return target;
     }
+    this.pos = new Chess(positions[target].fen());
+    this.lastMove = null;
+    this.show();
+    const sans = steps.slice(0, target).map((s) => s.san);
+    this.status(
+      "Ustaw pozycję jak na ekranie",
+      `${sans.length ? "Wracamy do: " + lineText(rootFen, sans) + ". " : "Pozycja wyjściowa. "}Świecą pola do zmiany — czerwona ramka: zdejmij, niebieska: postaw.`,
+      "warn"
+    );
+    const idx = await this.waitOcc(positions.slice(0, target + 1), { showDiffFor: target, ledDiff: true, diffDelay: 250 });
+    peg.leds([]);
+    this.synced = true;
+    this.played = this.played.slice(0, idx);
+    return idx;
   }
 
   async playLine(line, phase) {
@@ -474,16 +470,7 @@ class Trainer {
     let k = 0;
     while (k < this.played.length && k < steps.length && this.played[k] === steps[k].uci) k++;
     k = Math.min(k, steps.findIndex((s) => s.target)); // wróć co najmniej przed pierwszy cel
-    if (this.physical()) {
-      if (!this.synced) this.status("Ustaw pozycję", "Ustaw bierki jak na ekranie. Świecą się pola, które się nie zgadzają.", "warn");
-      const start = this.positionsOf(rootFen, steps.slice(0, k).map((s) => s.uci))[k];
-      if (!this.synced && this.played.length === 0) {
-        this.pos = new Chess(start.fen());
-        this.lastMove = null;
-        this.show();
-      }
-      k = await this.navigate(rootFen, steps, k);
-    }
+    if (this.physical()) k = await this.navigate(rootFen, steps, k);
     this.pos = this.positionsOf(rootFen, steps.slice(0, k).map((s) => s.uci))[k];
     this.lastMove = null;
     this.show();
