@@ -9,7 +9,7 @@ import {
   addMove, deleteMove, deletePreview, emptyRep, validateBackup,
 } from "./repertoire.js";
 
-const VERSION = "2026-11-07 m";
+const VERSION = "2026-11-07 n";
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -180,7 +180,7 @@ class Trainer {
   }
 
   /** Czeka, aż zajętość pól zgodzi się z jedną z pozycji. Zwraca jej indeks. */
-  waitOcc(targets, { showDiffFor = 0, ledDiff = false, quietIf = null, diffDelay = null } = {}) {
+  waitOcc(targets, { showDiffFor = 0, ledDiff = false, quietIf = null, diffDelay = null, allowStart = false } = {}) {
     const sets = targets.map((c) => occOf(c));
     // pozycja „jeszcze nic nie ruszone” — wtedy nie pokazuj różnic, tylko czekaj
     const quiet = quietIf && occOf(quietIf);
@@ -213,6 +213,12 @@ class Trainer {
       const h = () => check();
       peg.addEventListener("occ", h);
       peg.addEventListener("state", h);
+      if (allowStart) {
+        const input = $("#t-from-start");
+        const fromStart = () => { if (input.checked) done(-1); };
+        input.addEventListener("change", fromStart);
+        onCleanup(() => input.removeEventListener("change", fromStart));
+      }
       onCleanup(() => {
         peg.removeEventListener("occ", h);
         peg.removeEventListener("state", h);
@@ -440,11 +446,10 @@ class Trainer {
     return out;
   }
 
-  /** Ustawia planszę w pozycji po `k` ruchach nowej linii (cofanie z diodami). */
   /**
    * Ustawia planszę w pozycji po `k` ruchach nowej linii: ekran pokazuje pozycję docelową,
    * diody świecą na polach, które trzeba zmienić (na bieżąco). Przyjmuje też każdą wcześniejszą
-   * pozycję tej linii (np. ustawienie od zera) — brakujące ruchy zostaną potem podpowiedziane.
+   * pozycję tej linii (np. ustawienie od zera) — pozostałe ruchy będzie można rozegrać.
    */
   async navigate(rootFen, steps, k) {
     if (!this.physical()) return k;
@@ -461,11 +466,13 @@ class Trainer {
     this.show();
     this.status(
       "Ustaw pozycję jak na ekranie",
-      "Świecą pola do zmiany — czerwona ramka: zdejmij, niebieska: postaw.",
+      target ? "Świecą pola do zmiany — czerwona ramka: zdejmij, niebieska: postaw. Możesz wybrać „Od początku”."
+        : "Ustaw pozycję początkową — czerwona ramka: zdejmij, niebieska: postaw.",
       "warn"
     );
-    const idx = await this.waitOcc(positions.slice(0, target + 1), { showDiffFor: target, ledDiff: true, diffDelay: 250 });
+    const idx = await this.waitOcc(positions.slice(0, target + 1), { showDiffFor: target, ledDiff: true, diffDelay: 250, allowStart: target > 0 });
     peg.leds([]);
+    if (idx === -1) return this.navigate(rootFen, steps, 0);
     this.synced = true;
     this.played = this.played.slice(0, idx);
     return idx;
@@ -482,6 +489,7 @@ class Trainer {
     let k = 0;
     while (k < this.played.length && k < steps.length && this.played[k] === steps[k].uci) k++;
     k = Math.min(k, steps.findIndex((s) => s.target)); // wróć co najmniej przed pierwszy cel
+    if ($("#t-from-start").checked) k = 0;
     $("#t-line").textContent = "";
     if (this.physical()) k = await this.navigate(rootFen, steps, k);
     this.pos = this.positionsOf(rootFen, steps.slice(0, k).map((s) => s.uci))[k];
@@ -501,8 +509,7 @@ class Trainer {
         store.logReview(this.rep, true, true);
         this.stats.learned++;
         this.renderStats();
-      } else if (step.target) await this.quizMove(step, line);
-      else await this.quizMove(step, line);
+      } else await this.quizMove(step, line);
       this.played = steps.slice(0, i + 1).map((s) => s.uci);
       this.renderLine(steps, i + 1, rootFen);
     }
@@ -524,6 +531,7 @@ class Trainer {
     this.board.setOrientation(rep.color);
     $("#t-title").textContent = `${rep.name} — ${mode === "learn" ? "nowe ruchy" : "powtórki"}`;
     $("#t-hint").hidden = true;
+    $("#t-from-start").checked = false;
     this.hintFor = null;
     this.renderStats();
     let wake = null;
