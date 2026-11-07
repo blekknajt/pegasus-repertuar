@@ -1,0 +1,13 @@
+# Repertuar Pegasus
+
+Trening repertuaru debiutowego z powtórkami (spaced repetition) na fizycznej szachownicy
+**DGT Pegasus** przez Web Bluetooth — działa w Chrome na Androidzie.
+
+- import PGN (z wariantami) i studiów Lichess,
+- ruchy przeciwnika podświetlane diodami, Twoje ruchy rozpoznawane z czujników,
+- tryb bez planszy (ruchy na ekranie), statystyki, praca offline.
+
+Dane zostają w przeglądarce urządzenia (IndexedDB).
+
+Protokół planszy: nieoficjalny opis https://dgtcentaurmods.github.io/pegasus-protocol.
+Biblioteki: [chess.js](https://github.com/jhlywa/chess.js) (BSD-2), figury „cburnett” z Lichess (CC BY-SA 3.0, Colin M.L. Burnett).

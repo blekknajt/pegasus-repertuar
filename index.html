@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Repertuar Pegasus</title>
+  <meta name="description" content="Trening repertuaru debiutowego z powtórkami, na fizycznej szachownicy DGT Pegasus.">
+  <meta name="theme-color" content="#262421">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="brand"><img src="icon.svg" alt=""> Repertuar</div>
+    <nav>
+      <button data-view="home" class="active">Repertuary</button>
+      <button data-view="stats">Statystyki</button>
+      <button data-view="settings">Ustawienia</button>
+    </nav>
+    <button id="peg-btn" data-state="off">Połącz planszę</button>
+  </header>
+
+  <main>
+    <!-- repertuary -->
+    <section id="view-home" class="view">
+      <div class="page-head">
+        <h1>Repertuary</h1>
+        <p id="home-summary" class="muted"></p>
+      </div>
+      <div id="rep-list" class="rep-list"></div>
+    </section>
+
+    <!-- import -->
+    <section id="view-import" class="view" hidden>
+      <div class="page-head">
+        <button class="ghost back" data-go="home">← Wróć</button>
+        <h1 id="imp-title">Nowy repertuar</h1>
+      </div>
+      <div class="card form">
+        <div id="imp-new" class="grid2">
+          <label>Nazwa<input id="imp-name" placeholder="np. Sycylijska Najdorfa"></label>
+          <label>Grasz kolorem
+            <select id="imp-color">
+              <option value="auto">automatycznie (z PGN, inaczej białe)</option>
+              <option value="w">białymi</option>
+              <option value="b">czarnymi</option>
+            </select>
+          </label>
+        </div>
+        <fieldset class="seg">
+          <label><input type="radio" name="src" value="lichess" checked> Studium Lichess</label>
+          <label><input type="radio" name="src" value="file"> Plik PGN</label>
+          <label><input type="radio" name="src" value="paste"> Wklej PGN</label>
+        </fieldset>
+        <div class="src-pane" data-src="lichess">
+          <label>Link do studium lub rozdziału
+            <input id="imp-url" inputmode="url" placeholder="https://lichess.org/study/abcd1234">
+          </label>
+          <p class="muted small">Studium musi być publiczne albo „niepubliczne” (dostęp przez link). Wczytywane są wszystkie warianty i komentarze.</p>
+        </div>
+        <div class="src-pane" data-src="file" hidden>
+          <label>Plik .pgn<input id="imp-file" type="file" accept=".pgn,.txt,application/x-chess-pgn,text/plain"></label>
+        </div>
+        <div class="src-pane" data-src="paste" hidden>
+          <label>PGN (z wariantami w nawiasach)<textarea id="imp-text" rows="8" placeholder="1. e4 e5 (1... c5 2. Nf3) 2. Nf3 Nc6 3. Bc4 *"></textarea></label>
+        </div>
+        <div class="row"><button id="imp-go" class="primary">Importuj</button></div>
+      </div>
+      <div id="imp-result"></div>
+    </section>
+
+    <!-- trening -->
+    <section id="view-train" class="view split" hidden>
+      <div class="board-wrap"><div id="t-board"></div></div>
+      <aside class="panel">
+        <div class="panel-head">
+          <h2 id="t-title"></h2>
+          <p id="t-mode" class="muted small"></p>
+        </div>
+        <div class="status-box">
+          <div id="t-status" class="status"></div>
+          <div id="t-sub" class="sub"></div>
+        </div>
+        <div id="t-comment" class="comment" hidden></div>
+        <div id="t-line" class="line"></div>
+        <div id="t-progress" class="progress"></div>
+        <div class="row">
+          <button id="t-hint">Podpowiedź</button>
+          <button id="t-flip" class="ghost">Obróć</button>
+          <button id="t-stop" class="ghost">Zakończ</button>
+        </div>
+      </aside>
+    </section>
+
+    <!-- przeglądanie -->
+    <section id="view-browse" class="view split" hidden>
+      <div class="board-wrap"><div id="b-board"></div></div>
+      <aside class="panel">
+        <div class="panel-head">
+          <button class="ghost back" data-go="home">← Wróć</button>
+          <h2 id="b-title"></h2>
+        </div>
+        <select id="b-roots" hidden></select>
+        <div id="b-line" class="line"></div>
+        <div id="b-comment" class="comment"></div>
+        <div id="b-moves" class="moves"></div>
+        <div class="row">
+          <button id="b-start" class="ghost">⏮ Początek</button>
+          <button id="b-back">← Cofnij</button>
+        </div>
+      </aside>
+    </section>
+
+    <!-- statystyki -->
+    <section id="view-stats" class="view" hidden>
+      <div class="page-head">
+        <h1>Statystyki</h1>
+        <select id="s-rep"></select>
+      </div>
+      <div id="s-tiles" class="tiles"></div>
+      <div class="card">
+        <h3>Prognoza powtórek (14 dni)</h3>
+        <div id="s-forecast" class="chart"></div>
+      </div>
+      <div class="card">
+        <h3>Ostatnie 14 dni <span class="legend"><i class="ok"></i> dobrze <i class="bad"></i> źle</span></h3>
+        <div id="s-history" class="chart"></div>
+      </div>
+      <div class="card">
+        <h3>Najczęściej mylone</h3>
+        <ol id="s-weak" class="weak"></ol>
+      </div>
+    </section>
+
+    <!-- ustawienia -->
+    <section id="view-settings" class="view" hidden>
+      <div class="page-head"><h1>Ustawienia</h1></div>
+      <div class="card form">
+        <h3>Plansza DGT Pegasus</h3>
+        <p id="set-bt" class="muted small"></p>
+        <label class="check"><input type="checkbox" id="set-rotated"> Plansza obrócona — siedzę po stronie czarnych (rząd 8 przy mnie)</label>
+        <label class="check"><input type="checkbox" id="set-hintleds"> Zapalaj diody przy podpowiedziach i znanych ruchach</label>
+        <div class="row"><button id="peg-test-leds" disabled>Test diod (d4 e4 d5 e5)</button></div>
+        <p class="muted small">Wskazówki: tylko jedno urządzenie naraz — rozłącz telefon z aplikacją DGT. Figury stawiaj na środku pól.</p>
+      </div>
+      <div class="card form">
+        <h3>Trening</h3>
+        <label>Nowych ruchów na sesję<input id="set-new" type="number" min="1" max="50"></label>
+        <label class="check"><input type="checkbox" id="set-sound"> Dźwięki</label>
+      </div>
+      <div class="card form">
+        <h3>Kopia zapasowa</h3>
+        <p class="muted small">Dane są tylko na tym urządzeniu (w przeglądarce). Rób czasem kopię.</p>
+        <div class="row">
+          <button id="set-backup">Pobierz kopię (.json)</button>
+          <label class="button">Przywróć z pliku<input id="set-restore" type="file" accept=".json,application/json" hidden></label>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
