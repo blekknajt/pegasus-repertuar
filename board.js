@@ -64,8 +64,8 @@ export class BoardView {
       const rank = this.orientation === "w" ? 8 - r : r + 1;
       const name = FILES[file] + rank;
       cell.dataset.sq = name;
-      cell.classList.toggle("light", (file + rank) % 2 === 1);
-      cell.classList.toggle("dark", (file + rank) % 2 === 0);
+      cell.classList.toggle("light", (file + rank) % 2 === 0); // a1 (0+1) ciemne, h1 jasne
+      cell.classList.toggle("dark", (file + rank) % 2 === 1);
       cell.dataset.file = r === 7 ? FILES[file] : "";
       cell.dataset.rank = f === 0 ? String(rank) : "";
       this.squares[name] = cell;
