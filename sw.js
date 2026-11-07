@@ -1,5 +1,5 @@
 // Praca offline: najpierw sieć (świeże wersje), w razie braku — kopia z pamięci.
-const CACHE = "repertuar-v16";
+const CACHE = "repertuar-v17";
 const FILES = [
   "./", "index.html", "style.css", "app.js", "board.js", "pegasus.js", "repertoire.js",
   "lib/chess.js", "engine.js", "lichess.js",
@@ -26,7 +26,7 @@ self.addEventListener("fetch", (e) => {
   if (url.searchParams.has("code") || url.searchParams.has("error")) return;
   if (/\/(?:piece|lib\/stockfish)\//.test(url.pathname)) {
     e.respondWith(caches.match(e.request).then((cached) => cached || fetch(e.request).then((r) => {
-      if (r.ok) caches.open(CACHE).then((c) => c.put(e.request, r.clone()));
+      if (r.ok) { const copy = r.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); }
       return r;
     })));
     return;
@@ -35,7 +35,8 @@ self.addEventListener("fetch", (e) => {
     // no-cache: zawsze pytaj serwer o świeżą wersję (omija 10-min pamięć GitHub Pages)
     fetch(e.request, { cache: "no-cache" })
       .then((r) => {
-        if (r.ok) caches.open(CACHE).then((c) => c.put(e.request, r.clone()));
+        // klon od razu — po zwróceniu strona odczyta treść i późniejszy clone() się nie uda
+        if (r.ok) { const copy = r.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); }
         return r;
       })
       .catch(() => caches.match(e.request, { ignoreSearch: true }))
