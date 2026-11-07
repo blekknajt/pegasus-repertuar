@@ -78,7 +78,7 @@
         <div id="t-nav-options" class="train-options" hidden><button id="t-from-start" class="accent" title="Ustaw pozycję początkową i rozegraj całą linię">Od początku</button></div>
         <button id="t-analysis-toggle" class="ghost" type="button" aria-expanded="false" aria-controls="t-analysis">Analiza</button>
       </div>
-      <div class="board-wrap"><div id="t-board"></div></div>
+      <div class="board-wrap"><div id="t-board"></div><div id="t-analysis-board" hidden></div></div>
       <aside class="panel">
         <div class="panel-head">
           <h2 id="t-title"></h2>
@@ -106,6 +106,13 @@
           <button id="t-eval-toggle" class="ghost" type="button" aria-pressed="false">Stockfish</button>
           <button id="t-db-toggle" class="ghost" type="button" aria-pressed="false">Baza Lichess</button>
         </div>
+        <div class="train-explore-controls">
+          <button id="t-explore" type="button">Wypróbuj ruchy</button>
+          <button id="t-explore-back" type="button" hidden>← Cofnij ruch</button>
+          <button id="t-explore-reset" type="button" hidden>Pozycja treningowa</button>
+          <button id="t-explore-return" class="primary" type="button" hidden>Wróć do treningu</button>
+        </div>
+        <div id="t-explore-info" class="small" aria-live="polite" hidden></div>
         <p id="t-analysis-empty" class="muted small">Włącz bazę Lichess lub Stockfisha.</p>
         <div id="t-eval" class="eval" hidden></div>
         <div id="t-db" class="db" hidden>

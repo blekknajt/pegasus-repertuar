@@ -9,14 +9,14 @@ import {
   addMove, deleteMove, deletePreview, emptyRep, validateBackup,
 } from "./repertoire.js";
 
-const VERSION = "2026-11-07 s";
+const VERSION = "2026-11-07 t";
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
 const peg = new Pegasus();
 const engine = new Engine();
-const trainAnalysis = { open: false, eval: false, db: false, fen: null };
+const trainAnalysis = { open: false, eval: false, db: false, fen: null, explore: null };
 const settings = () => store.data.settings;
 
 const SAMPLE_PGN = `[Event "Przykład: włoska"]
@@ -157,15 +157,20 @@ class Trainer {
 
   _wait(setup) {
     return new Promise((resolve, reject) => {
-      const w = { reject, cleanup: [] };
+      const w = { reject, cleanup: [], pause: [], resume: [], pending: null };
       const done = (v) => {
+        if (trainAnalysis.explore) { w.pending = { value: v }; return; }
         w.cleanup.forEach((f) => f());
         this.waiters.delete(w);
         resolve(v);
       };
+      w.continue = () => {
+        if (w.pending) { const value = w.pending.value; w.pending = null; done(value); }
+        else w.resume.forEach((f) => f());
+      };
       w.cleanup.push(() => {});
       this.waiters.add(w);
-      setup(done, (f) => w.cleanup.push(f));
+      setup(done, (f) => w.cleanup.push(f), (f) => w.pause.push(f), (f) => w.resume.push(f));
     });
   }
 
@@ -187,10 +192,11 @@ class Trainer {
     const sets = targets.map((c) => occOf(c));
     // pozycja „jeszcze nic nie ruszone” — wtedy nie pokazuj różnic, tylko czekaj
     const quiet = quietIf && occOf(quietIf);
-    return this._wait((done, onCleanup) => {
+    return this._wait((done, onCleanup, onPause, onResume) => {
       let diffTimer = null;
       const check = () => {
         clearTimeout(diffTimer);
+        if (trainAnalysis.explore) return;
         const occ = peg.occupied();
         if (!occ) return;
         const i = sets.findIndex((s) => setEq(s, occ));
@@ -214,6 +220,8 @@ class Trainer {
         }, diffDelay ?? (ledDiff ? 1200 : 3500));
       };
       const h = () => check();
+      onPause(() => clearTimeout(diffTimer));
+      onResume(check);
       peg.addEventListener("occ", h);
       peg.addEventListener("state", h);
       if (allowStart) {
@@ -235,13 +243,14 @@ class Trainer {
   /** Czeka na ruch gracza (plansza albo ekran). Zwraca obiekt ruchu chess.js (bez wykonania). */
   waitUserMove(expected) {
     if (this.physical()) {
-      return this._wait((done, onCleanup) => {
+      return this._wait((done, onCleanup, onPause, onResume) => {
         const base = occOf(this.pos);
         const touched = new Set();
         let timer = null, diffTimer = null;
         const check = (e) => {
           clearTimeout(timer);
           clearTimeout(diffTimer);
+          if (trainAnalysis.explore) return;
           const occ = peg.occupied();
           if (!occ) return;
           if (e && e.detail && e.detail.square) touched.add(e.detail.square);
@@ -264,6 +273,8 @@ class Trainer {
         };
         peg.addEventListener("occ", check);
         peg.addEventListener("state", check);
+        onPause(() => { clearTimeout(timer); clearTimeout(diffTimer); touched.clear(); });
+        onResume(check);
         onCleanup(() => {
           peg.removeEventListener("occ", check);
           peg.removeEventListener("state", check);
@@ -566,6 +577,8 @@ class Trainer {
     let newLeft = Number(settings().newPerSession) || 10;
     let retryRound = false;
     try {
+      if (!this.running) throw new Abort();
+      if (trainAnalysis.explore) await this._wait((done, cleanup, pause, resume) => resume(() => done()));
       for (;;) {
         let line;
         if (mode === "learn") {
@@ -652,11 +665,12 @@ function whenText(t) {
 
 // ---------------------------------------------------------------- widoki
 
-let trainBoard, browseBoard, trainer;
+let trainBoard, analysisBoard, browseBoard, trainer;
 
 function go(view) {
   const previous = document.body.dataset.view;
   if (previous !== view && (previous === "train" || previous === "browse")) {
+    if (previous === "train") discardTrainExplore();
     engine.job++;
     engine.stopLocal();
     dbRequest++;
@@ -870,7 +884,7 @@ function renderTrainAnalysis(force = false) {
     dbRequest++;
     return;
   }
-  const fen = trainer.pos?.fen();
+  const fen = (state.explore?.chess || trainer.pos)?.fen();
   if (!fen) {
     $("#t-eval").textContent = "Czekam na pozycję…";
     $("#t-db-body").textContent = "Czekam na pozycję…";
@@ -880,13 +894,153 @@ function renderTrainAnalysis(force = false) {
   state.fen = fen;
   const node = trainer.rep?.nodes[posKey(fen)] || { moves: {} };
   const current = () => document.body.dataset.view === "train" && state.open && state.fen === fen;
-  if (state.eval) renderEvaluation(fen, node, $("#t-eval"), current, false);
+  if (state.eval) renderEvaluation(fen, node, $("#t-eval"), current, !!state.explore && !state.explore.restoring);
   else { engine.job++; engine.stopLocal(); }
   if (state.db) {
     const src = settings().dbSrc || "lichess";
     $$("input[name=tdbsrc]").forEach((r) => (r.checked = r.value === src));
-    renderDatabase(fen, node, src, $("#t-db-body"), $("#t-db-opening"), current, false);
+    renderDatabase(fen, node, src, $("#t-db-body"), $("#t-db-opening"), current, !!state.explore && !state.explore.restoring, false);
   } else dbRequest++;
+}
+
+// Próbna linia ma własną pozycję i nie zmienia stanu powtórki.
+function startTrainExplore() {
+  if (!trainer.pos || trainAnalysis.explore) return;
+  const physical = trainer.running ? trainer.usingBoard : peg.state === "on" && !!peg.occ;
+  const chess = new Chess(trainer.pos.fen());
+  trainAnalysis.explore = { chess, root: chess.fen(), physical, synced: false, restoring: false, touched: new Set(), timer: null, closeOnReturn: false };
+  for (const waiter of trainer.waiters) waiter.pause.forEach((f) => f());
+  $("#t-board").hidden = true;
+  $("#t-analysis-board").hidden = false;
+  $("#t-explore").hidden = true;
+  $("#t-explore-back").hidden = false;
+  $("#t-explore-reset").hidden = false;
+  $("#t-explore-return").hidden = false;
+  $("#t-explore-info").hidden = false;
+  $("#t-hint").disabled = true;
+  $("#t-from-start").disabled = true;
+  analysisBoard.setOrientation(trainBoard.orientation);
+  if (physical && peg.state === "on") peg.leds([]);
+  drawTrainExplore();
+  onTrainExploreOcc();
+}
+
+function drawTrainExplore() {
+  const e = trainAnalysis.explore;
+  if (!e) return;
+  const history = e.chess.history({ verbose: true });
+  const last = history[history.length - 1];
+  analysisBoard.setPosition(e.chess.fen());
+  analysisBoard.setHighlights({ last: last ? [last.from, last.to] : null });
+  analysisBoard.setArrows([]);
+  const legal = e.chess.moves({ verbose: true });
+  analysisBoard.setInteractive(e.restoring ? null : (sq) => legal.filter((m) => m.from === sq).map((m) => m.to));
+  analysisBoard.onMove = (from, to) => {
+    const options = legal.filter((m) => m.from === from && m.to === to);
+    if (!options.length) return;
+    let move = options[0];
+    if (options.length > 1) {
+      const p = (prompt("Promocja na: h (hetman), w (wieża), g (goniec), s (skoczek)", "h") || "h").toLowerCase()[0];
+      move = options.find((m) => m.promotion === ({ h: "q", w: "r", g: "b", s: "n" }[p] || "q")) || move;
+    }
+    playTrainExplore(move);
+  };
+  $("#t-explore-back").disabled = e.restoring || !history.length;
+  $("#t-explore-reset").disabled = e.restoring || !history.length;
+  $("#t-explore-return").disabled = e.restoring;
+  const line = history.length ? lineText(e.root, history.map((m) => m.san)) : "pozycja treningowa";
+  $("#t-explore-info").textContent = e.restoring
+    ? "Ustaw na Pegasusie pozycję pokazaną na ekranie, aby wrócić do treningu."
+    : `Próbna linia: ${line}. Trening jest wstrzymany.` +
+      (e.physical && !e.synced ? " Ustaw na Pegasusie pozycję z ekranu, aby grać na planszy." : "");
+  renderTrainAnalysis(true);
+}
+
+function playTrainExplore(move) {
+  const e = trainAnalysis.explore;
+  if (!e || e.restoring) return;
+  clearTimeout(e.timer);
+  e.chess.move({ from: move.from, to: move.to, promotion: move.promotion });
+  e.touched.clear();
+  e.synced = !e.physical || (peg.state === "on" && !!peg.occupied() && setEq(peg.occupied(), occOf(e.chess)));
+  drawTrainExplore();
+  onTrainExploreOcc();
+}
+
+function onTrainExploreOcc(event) {
+  const e = trainAnalysis.explore;
+  if (!e || !e.physical || document.body.dataset.view !== "train") return;
+  clearTimeout(e.timer);
+  const occ = peg.state === "on" ? peg.occupied() : null;
+  if (!occ) {
+    e.synced = false;
+    $("#t-explore-info").textContent = "Połącz planszę Pegasus, aby zsynchronizować pozycję.";
+    return;
+  }
+  const want = occOf(e.chess);
+  if (setEq(occ, want)) {
+    e.touched.clear();
+    analysisBoard.setDiff(null);
+    if (e.restoring) return finishTrainExplore();
+    if (!e.synced) { e.synced = true; drawTrainExplore(); }
+    return;
+  }
+  if (e.restoring || !e.synced) {
+    const missing = [...want].filter((sq) => !occ.has(sq));
+    const extra = [...occ].filter((sq) => !want.has(sq));
+    analysisBoard.setDiff({ missing, extra });
+    if (e.restoring) peg.leds([...missing, ...extra]);
+    return;
+  }
+  if (event?.detail?.square) e.touched.add(event.detail.square);
+  const candidates = matchMoves(e.chess, occ, e.touched);
+  if (candidates.length) e.timer = setTimeout(() => {
+    if (trainAnalysis.explore === e && !e.restoring) playTrainExplore(candidates[0]);
+  }, 1300);
+}
+
+function returnFromTrainExplore(closePanel = false) {
+  const e = trainAnalysis.explore;
+  if (!e) return;
+  e.closeOnReturn ||= closePanel;
+  e.restoring = true;
+  clearTimeout(e.timer);
+  e.chess = new Chess(e.root);
+  drawTrainExplore();
+  if (!e.physical) return finishTrainExplore();
+  onTrainExploreOcc();
+}
+
+function discardTrainExplore() {
+  const e = trainAnalysis.explore;
+  if (!e) return;
+  clearTimeout(e.timer);
+  trainAnalysis.explore = null;
+  analysisBoard.setInteractive(null);
+  analysisBoard.onMove = null;
+  analysisBoard.setDiff(null);
+  $("#t-board").hidden = false;
+  $("#t-analysis-board").hidden = true;
+  $("#t-explore").hidden = false;
+  $("#t-explore-back").hidden = true;
+  $("#t-explore-reset").hidden = true;
+  $("#t-explore-return").hidden = true;
+  $("#t-explore-info").hidden = true;
+  $("#t-hint").disabled = false;
+  $("#t-from-start").disabled = false;
+  if (e.physical && peg.state === "on") peg.leds([]);
+}
+
+function finishTrainExplore() {
+  const closePanel = trainAnalysis.explore?.closeOnReturn;
+  discardTrainExplore();
+  if (closePanel) trainAnalysis.open = false;
+  renderTrainAnalysis(true);
+  if (trainer.running && trainer.usingBoard && peg.state === "on") {
+    const squares = trainer.board.arrows.flatMap((a) => a.from && a.to ? [a.from, a.to] : []);
+    if (squares.length) peg.leds(squares);
+  }
+  for (const waiter of [...trainer.waiters]) waiter.continue();
 }
 
 // --- edytor (przeglądanie, dodawanie, usuwanie, komentarze)
@@ -1013,7 +1167,7 @@ async function renderDb(chess, node) {
     () => document.body.dataset.view === "browse" && fen === browse.chess?.fen(), true);
 }
 
-async function renderDatabase(fen, node, src, body, opening, isCurrent, interactive) {
+async function renderDatabase(fen, node, src, body, opening, isCurrent, interactive, allowSettings = interactive) {
   const request = ++dbRequest;
   body.innerHTML = `<p class="muted small">Wczytuję…</p>`;
   opening.textContent = "";
@@ -1036,7 +1190,7 @@ async function renderDatabase(fen, node, src, body, opening, isCurrent, interact
     body.innerHTML = `<table class="db-table">${d.moves.map(row).join("")}<tr class="db-total"><td>razem</td><td></td><td class="num">${fmtN(d.total)}</td><td></td></tr></table>`;
   } catch (e) {
     if (request !== dbRequest || !isCurrent()) return;
-    body.innerHTML = `<p class="small">${esc(e.message)}${e.code === "auth" && interactive ? ` <button class="ghost" data-go="settings">Ustawienia</button>` : ""}</p>`;
+    body.innerHTML = `<p class="small">${esc(e.message)}${e.code === "auth" && allowSettings ? ` <button class="ghost" data-go="settings">Ustawienia</button>` : ""}</p>`;
   }
 }
 
@@ -1319,6 +1473,7 @@ async function main() {
   peg.rotated = !!settings().rotated;
 
   trainBoard = new BoardView($("#t-board"));
+  analysisBoard = new BoardView($("#t-analysis-board"));
   browseBoard = new BoardView($("#b-board"));
   trainer = new Trainer(trainBoard);
   trainBoard.setPosition(START_FEN);
@@ -1348,11 +1503,46 @@ async function main() {
   $("#t-stop").addEventListener("click", leaveTraining);
   $("#t-back-rep").addEventListener("click", leaveTraining);
   $("#t-hint").addEventListener("click", () => trainer.hintFor && trainer.hintFor());
-  $("#t-flip").addEventListener("click", () => trainBoard.setOrientation(trainBoard.orientation === "w" ? "b" : "w"));
+  $("#t-flip").addEventListener("click", () => {
+    trainBoard.setOrientation(trainBoard.orientation === "w" ? "b" : "w");
+    analysisBoard.setOrientation(trainBoard.orientation);
+  });
   $("#t-analysis-toggle").addEventListener("click", () => {
+    if (trainAnalysis.explore) return returnFromTrainExplore(true);
     trainAnalysis.open = !trainAnalysis.open;
     renderTrainAnalysis(true);
   });
+  $("#t-explore").addEventListener("click", startTrainExplore);
+  $("#t-explore-return").addEventListener("click", () => returnFromTrainExplore());
+  const rewindExplore = (reset) => {
+    const e = trainAnalysis.explore;
+    if (!e || e.restoring) return;
+    clearTimeout(e.timer);
+    if (reset) e.chess = new Chess(e.root);
+    else e.chess.undo();
+    e.touched.clear();
+    e.synced = !e.physical || (peg.state === "on" && !!peg.occupied() && setEq(peg.occupied(), occOf(e.chess)));
+    drawTrainExplore();
+    onTrainExploreOcc();
+  };
+  $("#t-explore-back").addEventListener("click", () => rewindExplore(false));
+  $("#t-explore-reset").addEventListener("click", () => rewindExplore(true));
+  $("#t-eval").addEventListener("click", (event) => {
+    const uci = event.target.closest("[data-ev]")?.dataset.ev;
+    const e = trainAnalysis.explore;
+    if (!uci || !e || e.restoring) return;
+    const move = e.chess.moves({ verbose: true }).find((m) => uciOf(m) === uci);
+    if (move) playTrainExplore(move);
+  });
+  $("#t-db-body").addEventListener("click", (event) => {
+    const san = event.target.closest("[data-san]")?.dataset.san;
+    const e = trainAnalysis.explore;
+    if (!san || !e || e.restoring) return;
+    const move = e.chess.moves({ verbose: true }).find((m) => m.san === san);
+    if (move) playTrainExplore(move);
+  });
+  peg.addEventListener("occ", onTrainExploreOcc);
+  peg.addEventListener("state", onTrainExploreOcc);
   $("#t-eval-toggle").addEventListener("click", () => {
     trainAnalysis.eval = !trainAnalysis.eval;
     renderTrainAnalysis(true);
