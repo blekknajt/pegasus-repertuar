@@ -9,7 +9,7 @@ import {
   addMove, deleteMove, deletePreview, emptyRep, validateBackup,
 } from "./repertoire.js";
 
-const VERSION = "2026-11-07 n";
+const VERSION = "2026-11-07 o";
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -169,6 +169,7 @@ class Trainer {
 
   abort() {
     this.running = false;
+    $("#t-nav-options").hidden = true;
     for (const w of this.waiters) {
       w.cleanup.forEach((f) => f());
       w.reject(new Abort());
@@ -179,7 +180,7 @@ class Trainer {
     if (this.physical()) peg.leds([]);
   }
 
-  /** Czeka, aż zajętość pól zgodzi się z jedną z pozycji. Zwraca jej indeks. */
+  /** Czeka na jedną z pozycji; -1 oznacza wybór przycisku „Od początku”. */
   waitOcc(targets, { showDiffFor = 0, ledDiff = false, quietIf = null, diffDelay = null, allowStart = false } = {}) {
     const sets = targets.map((c) => occOf(c));
     // pozycja „jeszcze nic nie ruszone” — wtedy nie pokazuj różnic, tylko czekaj
@@ -214,10 +215,10 @@ class Trainer {
       peg.addEventListener("occ", h);
       peg.addEventListener("state", h);
       if (allowStart) {
-        const input = $("#t-from-start");
-        const fromStart = () => { if (input.checked) done(-1); };
-        input.addEventListener("change", fromStart);
-        onCleanup(() => input.removeEventListener("change", fromStart));
+        const button = $("#t-from-start");
+        const fromStart = () => done(-1);
+        button.addEventListener("click", fromStart);
+        onCleanup(() => button.removeEventListener("click", fromStart));
       }
       onCleanup(() => {
         peg.removeEventListener("occ", h);
@@ -466,11 +467,17 @@ class Trainer {
     this.show();
     this.status(
       "Ustaw pozycję jak na ekranie",
-      target ? "Świecą pola do zmiany — czerwona ramka: zdejmij, niebieska: postaw. Możesz wybrać „Od początku”."
+      target ? "Świecą pola do zmiany — czerwona ramka: zdejmij, niebieska: postaw. Możesz nacisnąć „Od początku”."
         : "Ustaw pozycję początkową — czerwona ramka: zdejmij, niebieska: postaw.",
       "warn"
     );
-    const idx = await this.waitOcc(positions.slice(0, target + 1), { showDiffFor: target, ledDiff: true, diffDelay: 250, allowStart: target > 0 });
+    $("#t-nav-options").hidden = target === 0;
+    let idx;
+    try {
+      idx = await this.waitOcc(positions.slice(0, target + 1), { showDiffFor: target, ledDiff: true, diffDelay: 250, allowStart: target > 0 });
+    } finally {
+      $("#t-nav-options").hidden = true;
+    }
     peg.leds([]);
     if (idx === -1) return this.navigate(rootFen, steps, 0);
     this.synced = true;
@@ -489,7 +496,6 @@ class Trainer {
     let k = 0;
     while (k < this.played.length && k < steps.length && this.played[k] === steps[k].uci) k++;
     k = Math.min(k, steps.findIndex((s) => s.target)); // wróć co najmniej przed pierwszy cel
-    if ($("#t-from-start").checked) k = 0;
     $("#t-line").textContent = "";
     if (this.physical()) k = await this.navigate(rootFen, steps, k);
     this.pos = this.positionsOf(rootFen, steps.slice(0, k).map((s) => s.uci))[k];
@@ -531,7 +537,7 @@ class Trainer {
     this.board.setOrientation(rep.color);
     $("#t-title").textContent = `${rep.name} — ${mode === "learn" ? "nowe ruchy" : "powtórki"}`;
     $("#t-hint").hidden = true;
-    $("#t-from-start").checked = false;
+    $("#t-nav-options").hidden = true;
     this.hintFor = null;
     this.renderStats();
     let wake = null;
@@ -610,6 +616,7 @@ class Trainer {
     const c = counts(this.rep);
     beep("done");
     this.board.setArrows([]);
+    $("#t-nav-options").hidden = true;
     this.hintFor = null;
     $("#t-hint").hidden = true;
     if (this.mode === "learn")

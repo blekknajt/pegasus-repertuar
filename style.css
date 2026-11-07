@@ -180,9 +180,6 @@ fieldset.seg label:has(input:checked) { border-color: var(--accent); background:
 .comment:empty { display: none; }
 .line { font-family: ui-monospace, monospace; font-size: 0.95rem; color: var(--muted); }
 .progress { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.start-toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); cursor: pointer; white-space: nowrap; }
-.start-toggle:has(input:checked) { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, var(--surface)); }
-.start-toggle input { width: 18px; height: 18px; margin: 0; accent-color: var(--primary); }
 .moves { display: flex; flex-direction: column; gap: 6px; }
 .move-btn { justify-content: flex-start; gap: 10px; flex: 1; }
 .move-row { display: flex; gap: 6px; }
