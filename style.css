@@ -170,7 +170,9 @@ fieldset.seg label:has(input:checked) { border-color: var(--accent); background:
 .panel-head { display: flex; flex-direction: column; gap: 2px; }
 .panel-head .back { align-self: flex-start; margin-bottom: 4px; }
 .status-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; min-height: 96px; }
-.status { font-size: 1.6rem; font-weight: 700; }
+.status-head { display: flex; align-items: flex-start; gap: 10px; }
+.status { min-width: 0; flex: 1; font-size: 1.6rem; font-weight: 700; }
+.status-head #t-hint { flex: none; padding: 8px 10px; font-size: .9rem; }
 .status[data-tone="bad"] { color: var(--danger); }
 .status[data-tone="good"] { color: var(--primary); }
 .status[data-tone="warn"] { color: var(--warn); }
