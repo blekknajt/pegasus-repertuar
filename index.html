@@ -95,26 +95,30 @@
       </aside>
     </section>
 
-    <!-- przeglądanie -->
-    <section id="view-browse" class="view split" hidden>
-      <div class="board-wrap"><div id="b-board"></div></div>
-      <aside class="panel">
-        <div class="panel-head">
+    <!-- edytor: szachownica stoi, przewija się tylko lista ruchów -->
+    <section id="view-browse" class="view editor" hidden>
+      <div class="ed-board"><div id="b-board"></div></div>
+      <div class="ed-side">
+        <div class="ed-head">
           <button class="ghost back" data-go="home">← Wróć</button>
           <h2 id="b-title"></h2>
         </div>
         <select id="b-roots" hidden></select>
         <div id="b-line" class="line"></div>
+        <div class="row nav-row">
+          <button id="b-start" class="ghost" aria-label="Na początek">⏮</button>
+          <button id="b-back">← Cofnij</button>
+          <button id="b-eval-toggle" class="ghost" aria-pressed="false">Ocena</button>
+        </div>
+        <div id="b-eval" class="eval" hidden></div>
+      </div>
+      <div class="ed-scroll">
         <div id="b-moves" class="moves"></div>
         <label id="b-comment-box" class="comment-edit" hidden>
           <span id="b-comment-label" class="muted small"></span>
           <textarea id="b-comment" rows="3" placeholder="Np. plan, typowy błąd przeciwnika, na co uważać…"></textarea>
         </label>
-        <div class="row">
-          <button id="b-start" class="ghost">⏮ Początek</button>
-          <button id="b-back">← Cofnij</button>
-        </div>
-      </aside>
+      </div>
     </section>
 
     <!-- statystyki -->

@@ -1,18 +1,20 @@
 import { Chess } from "./lib/chess.js";
 import { Pegasus } from "./pegasus.js";
 import { BoardView } from "./board.js";
+import { Engine, scoreText } from "./engine.js";
 import {
   store, importPgn, inferColor, fetchLichessStudy, exportPgn, buildLine, grade, markLearned, counts,
   forecast, weakest, lineText, isUserNode, posKey, START_FEN, DAY,
   addMove, deleteMove, deletePreview, emptyRep,
 } from "./repertoire.js";
 
-const VERSION = "2026-11-07 g";
+const VERSION = "2026-11-07 h";
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
 const peg = new Pegasus();
+const engine = new Engine();
 const settings = () => store.data.settings;
 
 const SAMPLE_PGN = `[Event "Przykład: włoska"]
@@ -895,6 +897,45 @@ function renderBrowse() {
       })
       .join("");
   syncBrowsePhysical();
+  renderEval(chess, node);
+}
+
+// --- ocena silnika w edytorze
+
+function renderEval(chess, node) {
+  const on = !!settings().evalOn;
+  $("#b-eval-toggle").setAttribute("aria-pressed", String(on));
+  const box = $("#b-eval");
+  box.hidden = !on;
+  if (!on) {
+    engine.job++;
+    engine.stopLocal();
+    return;
+  }
+  const fen = chess.fen();
+  if (chess.isGameOver()) {
+    box.innerHTML = `<span class="eval-src">${chess.isCheckmate() ? "Mat." : "Koniec partii."}</span>`;
+    return;
+  }
+  box.innerHTML = `<span class="eval-src">Liczę…</span>`;
+  engine.analyse(fen, (res) => {
+    if (fen !== browse.chess?.fen()) return;
+    const inRep = new Set(Object.keys(node.moves));
+    const lines = res.lines.map((l) => {
+      const c = new Chess(fen);
+      const sans = [];
+      for (const u of l.pv.slice(0, 8)) {
+        try { sans.push(c.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] }).san); } catch { break; }
+      }
+      if (!sans.length) return "";
+      const first = l.pv[0];
+      const txt = lineText(fen, sans).replace(/^(\d+\.(?:\.\.)? )?(\S+)/, (m0, num = "", mv) => `${num}<b>${esc(mv)}</b>`);
+      return `<button class="eval-line" data-ev="${first}"><span class="eval-score">${scoreText(l)}</span><span class="eval-pv">${txt}</span>${inRep.has(first) ? `<span class="pill ok" title="ruch jest w repertuarze">✓</span>` : ""}</button>`;
+    });
+    box.innerHTML =
+      `<span class="eval-src">${esc(res.source)}${res.depth ? `, głębokość ${res.depth}` : ""}${res.pending ? " — liczę…" : ""}</span>` +
+      (lines.join("") || "");
+  });
 }
 
 function browseDelete(uci) {
@@ -1158,6 +1199,21 @@ async function main() {
   });
   $("#b-comment").addEventListener("change", () => renderBrowse());
   peg.addEventListener("occ", onBrowseOcc);
+  $("#b-eval-toggle").addEventListener("click", () => {
+    settings().evalOn = !settings().evalOn;
+    store.save();
+    renderBrowse();
+  });
+  $("#b-eval").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-ev]");
+    if (!b || !browse.chess) return;
+    const u = b.dataset.ev;
+    const m = browse.chess.moves({ verbose: true }).find((x) => uciOf(x) === u);
+    if (m) browsePlay(m);
+  });
+  const setHdr = () => document.documentElement.style.setProperty("--hdr", $("header").offsetHeight + "px");
+  setHdr();
+  addEventListener("resize", setHdr);
   $("#imp-empty").addEventListener("click", () => {
     const name = $("#imp-name").value.trim() || "Nowy repertuar";
     let color = $("#imp-color").value;

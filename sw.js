@@ -1,8 +1,9 @@
 // Praca offline: najpierw sieć (świeże wersje), w razie braku — kopia z pamięci.
-const CACHE = "repertuar-v4";
+const CACHE = "repertuar-v5";
 const FILES = [
   "./", "index.html", "style.css", "app.js", "board.js", "pegasus.js", "repertoire.js",
-  "lib/chess.js", "manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png",
+  "lib/chess.js", "engine.js",
+  "lib/stockfish/stockfish-17.1-lite-single-03e3232.js", "lib/stockfish/stockfish-17.1-lite-single-03e3232.wasm", "manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png",
   ..."wb".split("").flatMap((c) => "KQRBNP".split("").map((p) => `piece/${c}${p}.svg`)),
 ];
 

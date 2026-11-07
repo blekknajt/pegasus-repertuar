@@ -10,4 +10,6 @@ Trening repertuaru debiutowego z powtórkami (spaced repetition) na fizycznej sz
 Dane zostają w przeglądarce urządzenia (IndexedDB).
 
 Protokół planszy: nieoficjalny opis https://dgtcentaurmods.github.io/pegasus-protocol.
-Biblioteki: [chess.js](https://github.com/jhlywa/chess.js) (BSD-2), figury „cburnett” z Lichess (CC BY-SA 3.0, Colin M.L. Burnett).
+Biblioteki: [chess.js](https://github.com/jhlywa/chess.js) (BSD-2), figury „cburnett” z Lichess (CC BY-SA 3.0, Colin M.L. Burnett),
+[Stockfish.js](https://github.com/nmrugg/stockfish.js) 17.1 lite (GPLv3, licencja w `lib/stockfish/Copying.txt`; źródła: https://github.com/official-stockfish/Stockfish).
+Ocena z chmury: https://lichess.org/api#tag/Analysis.
