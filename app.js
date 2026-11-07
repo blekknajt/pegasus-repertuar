@@ -9,14 +9,14 @@ import {
   addMove, deleteMove, deletePreview, emptyRep, validateBackup,
 } from "./repertoire.js";
 
-const VERSION = "2026-11-07 r";
+const VERSION = "2026-11-07 s";
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
 const peg = new Pegasus();
 const engine = new Engine();
-const trainAnalysis = { open: false, eval: true, db: true, fen: null };
+const trainAnalysis = { open: false, eval: false, db: false, fen: null };
 const settings = () => store.data.settings;
 
 const SAMPLE_PGN = `[Event "Przykład: włoska"]
@@ -833,6 +833,9 @@ async function doImport() {
 // --- trening
 
 function startTraining(rep, mode) {
+  trainAnalysis.open = false;
+  trainAnalysis.eval = false;
+  trainAnalysis.db = false;
   trainer.rep = rep;
   trainer.pos = new Chess(rep.nodes[rep.roots[0]]?.fen || START_FEN);
   trainBoard.setPosition(trainer.pos.fen());
@@ -855,11 +858,12 @@ function renderTrainAnalysis(force = false) {
   $("#view-train").classList.toggle("analysis-open", state.open);
   $("#t-analysis").hidden = !state.open;
   $("#t-analysis-toggle").setAttribute("aria-expanded", String(state.open));
-  $("#t-analysis-toggle").textContent = state.open ? "Zamknij analizę" : "Baza i Stockfish";
+  $("#t-analysis-toggle").textContent = state.open ? "Zamknij analizę" : "Analiza";
   $("#t-eval-toggle").setAttribute("aria-pressed", String(state.eval));
   $("#t-db-toggle").setAttribute("aria-pressed", String(state.db));
   $("#t-eval").hidden = !state.eval;
   $("#t-db").hidden = !state.db;
+  $("#t-analysis-empty").hidden = state.eval || state.db;
   if (!state.open) {
     engine.job++;
     engine.stopLocal();

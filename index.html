@@ -76,7 +76,7 @@
     <section id="view-train" class="view split" hidden>
       <div class="train-tools">
         <div id="t-nav-options" class="train-options" hidden><button id="t-from-start" class="accent" title="Ustaw pozycję początkową i rozegraj całą linię">Od początku</button></div>
-        <button id="t-analysis-toggle" class="ghost" type="button" aria-expanded="false" aria-controls="t-analysis">Baza i Stockfish</button>
+        <button id="t-analysis-toggle" class="ghost" type="button" aria-expanded="false" aria-controls="t-analysis">Analiza</button>
       </div>
       <div class="board-wrap"><div id="t-board"></div></div>
       <aside class="panel">
@@ -103,11 +103,12 @@
       <div id="t-analysis" class="train-analysis" hidden>
         <div class="train-analysis-head">
           <strong>Analiza bieżącej pozycji</strong>
-          <button id="t-eval-toggle" class="ghost" type="button" aria-pressed="true">Stockfish</button>
-          <button id="t-db-toggle" class="ghost" type="button" aria-pressed="true">Baza Lichess</button>
+          <button id="t-eval-toggle" class="ghost" type="button" aria-pressed="false">Stockfish</button>
+          <button id="t-db-toggle" class="ghost" type="button" aria-pressed="false">Baza Lichess</button>
         </div>
-        <div id="t-eval" class="eval"></div>
-        <div id="t-db" class="db">
+        <p id="t-analysis-empty" class="muted small">Włącz bazę Lichess lub Stockfisha.</p>
+        <div id="t-eval" class="eval" hidden></div>
+        <div id="t-db" class="db" hidden>
           <div class="db-head">
             <fieldset class="seg small-seg">
               <label><input type="radio" name="tdbsrc" value="lichess" checked> Lichess</label>
