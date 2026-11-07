@@ -9,7 +9,7 @@ import {
   addMove, deleteMove, deletePreview, emptyRep, validateBackup,
 } from "./repertoire.js";
 
-const VERSION = "2026-11-07 p";
+const VERSION = "2026-11-07 q";
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -624,7 +624,8 @@ class Trainer {
     else
       this.status(s.ok + s.fail ? "Powtórki zrobione 🎉" : "Nic do powtórki", s.ok + s.fail ? `✓ ${s.ok}  ✗ ${s.fail}  (${Math.round((100 * s.ok) / (s.ok + s.fail))}%)` : `Następne powtórki: ${nextDueText(this.rep)}. Możesz poznać nowe ruchy (${c.fresh}).`, "good");
     this.renderStats();
-    $("#t-stop").textContent = "Zamknij";
+    $("#t-stop").hidden = true;
+    $("#t-back-rep").hidden = false;
     if (this.physical()) peg.leds([]);
   }
 }
@@ -826,6 +827,8 @@ async function doImport() {
 function startTraining(rep, mode) {
   go("train");
   $("#t-stop").textContent = "Zakończ";
+  $("#t-stop").hidden = false;
+  $("#t-back-rep").hidden = true;
   $("#t-comment").hidden = true;
   $("#t-line").textContent = "";
   if (!peg.occ || peg.state !== "on")
@@ -1275,10 +1278,12 @@ async function main() {
     r.addEventListener("change", () => $$(".src-pane").forEach((p) => (p.hidden = p.dataset.src !== $("input[name=src]:checked").value)))
   );
 
-  $("#t-stop").addEventListener("click", () => {
+  const leaveTraining = () => {
     if (trainer.running) trainer.abort();
     go("home");
-  });
+  };
+  $("#t-stop").addEventListener("click", leaveTraining);
+  $("#t-back-rep").addEventListener("click", leaveTraining);
   $("#t-hint").addEventListener("click", () => trainer.hintFor && trainer.hintFor());
   $("#t-flip").addEventListener("click", () => trainBoard.setOrientation(trainBoard.orientation === "w" ? "b" : "w"));
 

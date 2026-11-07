@@ -178,6 +178,7 @@ fieldset.seg label:has(input:checked) { border-color: var(--accent); background:
 .status[data-tone="warn"] { color: var(--warn); }
 .status[data-tone="new"] { color: var(--accent); }
 .sub { color: var(--muted); margin-top: 4px; }
+.status-box #t-back-rep { margin-top: 12px; }
 .comment { background: var(--surface-2); border-radius: 10px; padding: 10px 12px; font-style: italic; }
 .comment:empty { display: none; }
 .line { font-family: ui-monospace, monospace; font-size: 0.95rem; color: var(--muted); }
