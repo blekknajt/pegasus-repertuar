@@ -2,7 +2,7 @@ import { Chess } from "./lib/chess.js";
 import { Pegasus } from "./pegasus.js";
 import { BoardView } from "./board.js";
 import {
-  store, importPgn, fetchLichessStudy, exportPgn, buildLine, grade, markLearned, counts,
+  store, importPgn, inferColor, fetchLichessStudy, exportPgn, buildLine, grade, markLearned, counts,
   forecast, weakest, lineText, isUserNode, posKey, START_FEN, DAY,
 } from "./repertoire.js";
 
@@ -723,15 +723,24 @@ async function doImport() {
     if (!text || !text.trim()) throw new Error("Pusty PGN.");
 
     let rep = importTarget;
+    let guessed = false;
     if (!rep) {
       let color = $("#imp-color").value;
+      let guess = false;
       if (color === "auto") {
         const o = (text.match(/\[Orientation\s+"(\w+)"\]/) || [])[1];
-        color = o === "black" ? "b" : "w";
+        if (o) color = o === "black" ? "b" : "w";
+        else {
+          const tmp = { roots: [], nodes: {} };
+          importPgn(tmp, text);
+          color = inferColor(tmp);
+          guess = true;
+        }
       }
       let name = $("#imp-name").value.trim();
       if (!name) name = (text.match(/\[StudyName\s+"([^"]+)"\]/) || text.match(/\[Event\s+"([^"]+)"\]/) || [])[1] || "Mój repertuar";
       rep = store.newRep(name, color);
+      guessed = guess;
     }
     const res = importPgn(rep, text);
     await store.saveNow();
@@ -739,6 +748,7 @@ async function doImport() {
     out.innerHTML = `<div class="card ok-card">
       <b>Gotowe.</b> Wczytano ${res.games} ${res.games === 1 ? "partię/rozdział" : "partii/rozdziałów"}, nowych ruchów: ${res.added}.
       Twoich ruchów do nauki w repertuarze „${esc(rep.name)}” (${rep.color === "w" ? "białe" : "czarne"}): ${c.total}.
+      ${guessed ? `<p class="small">Kolor rozpoznany po kształcie drzewa wariantów — jeśli się nie zgadza, usuń repertuar i zaimportuj z wybranym kolorem.</p>` : ""}
       ${res.errors.length ? `<details><summary>Pominięte fragmenty (${res.errors.length})</summary><ul>${res.errors.slice(0, 30).map((x) => `<li>${esc(x)}</li>`).join("")}</ul></details>` : ""}
       <div class="row"><button class="primary" data-go="home">Do repertuarów</button></div></div>`;
     if (!importTarget) {

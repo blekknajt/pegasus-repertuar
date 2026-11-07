@@ -282,6 +282,23 @@ export function importPgn(rep, text) {
   return { games: games.length, added, errors, headers: games.map((g) => g.headers) };
 }
 
+/**
+ * Zgaduje kolor gracza z kształtu drzewa: po stronie gracza zwykle jeden ruch na pozycję,
+ * po stronie przeciwnika — wiele odpowiedzi.
+ */
+export function inferColor(rep) {
+  const branching = { w: [0, 0], b: [0, 0] }; // [pozycje z >1 ruchem, pozycje z ruchami]
+  for (const n of Object.values(rep.nodes)) {
+    const k = Object.keys(n.moves).length;
+    if (!k) continue;
+    const t = turnOf(n.fen);
+    branching[t][1]++;
+    if (k > 1) branching[t][0]++;
+  }
+  const ratio = (c) => (branching[c][1] ? branching[c][0] / branching[c][1] : 0);
+  return ratio("w") <= ratio("b") ? "w" : "b";
+}
+
 /** Pobiera PGN studium (lub rozdziału) z Lichess. */
 export async function fetchLichessStudy(url) {
   const m = url.match(/lichess\.org\/study\/([A-Za-z0-9]{8})(?:\/([A-Za-z0-9]{8}))?/);
