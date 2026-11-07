@@ -7,7 +7,7 @@ import {
   addMove, deleteMove, deletePreview, emptyRep,
 } from "./repertoire.js";
 
-const VERSION = "2026-11-07 e";
+const VERSION = "2026-11-07 f";
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -176,8 +176,10 @@ class Trainer {
   }
 
   /** Czeka, aż zajętość pól zgodzi się z jedną z pozycji. Zwraca jej indeks. */
-  waitOcc(targets, { showDiffFor = 0, ledDiff = false } = {}) {
+  waitOcc(targets, { showDiffFor = 0, ledDiff = false, quietIf = null } = {}) {
     const sets = targets.map((c) => occOf(c));
+    // pozycja „jeszcze nic nie ruszone” — wtedy nie pokazuj różnic, tylko czekaj
+    const quiet = quietIf && occOf(quietIf);
     return this._wait((done, onCleanup) => {
       let diffTimer = null;
       const check = () => {
@@ -188,6 +190,10 @@ class Trainer {
         if (i >= 0) {
           this.board.setDiff(null);
           return done(i);
+        }
+        if (quiet && setEq(quiet, occ)) {
+          this.board.setDiff(null);
+          return;
         }
         diffTimer = setTimeout(() => {
           const want = sets[showDiffFor];
@@ -299,7 +305,7 @@ class Trainer {
       this.show({ arrows: [{ from: m.from, to: m.to, c: "B" }] });
       const after = new Chess(this.pos.fen());
       after.move(step.uci.length > 4 ? { from: m.from, to: m.to, promotion: m.promotion } : { from: m.from, to: m.to });
-      await this.waitOcc([after]);
+      await this.waitOcc([after], { quietIf: this.pos });
       peg.leds([]);
     } else {
       this.show();
@@ -314,7 +320,9 @@ class Trainer {
   async takeBack(m) {
     if (!this.physical()) return;
     peg.leds(moveSquares(m), { blink: 1 });
-    await this.waitOcc([this.pos], { showDiffFor: 0 });
+    const wrong = new Chess(this.pos.fen());
+    wrong.move({ from: m.from, to: m.to, promotion: m.promotion });
+    await this.waitOcc([this.pos], { showDiffFor: 0, quietIf: wrong });
     peg.leds([]);
   }
 
@@ -428,7 +436,7 @@ class Trainer {
       const targets = positions.slice(0, first ? cur + 1 : cur);
       // przy ustawianiu: różnice względem celu; przy cofaniu: względem następnego kroku
       const diffFor = this.synced ? targets.length - 1 : Math.min(lim, targets.length - 1);
-      const idx = await this.waitOcc(targets, { showDiffFor: diffFor, ledDiff: !this.synced });
+      const idx = await this.waitOcc(targets, { showDiffFor: diffFor, ledDiff: !this.synced, quietIf: first ? null : positions[cur] });
       if (!this.synced) {
         this.synced = true;
         peg.leds([]);
