@@ -66,7 +66,8 @@
         <div class="src-pane" data-src="paste" hidden>
           <label>PGN (z wariantami w nawiasach)<textarea id="imp-text" rows="8" placeholder="1. e4 e5 (1... c5 2. Nf3) 2. Nf3 Nc6 3. Bc4 *"></textarea></label>
         </div>
-        <div class="row"><button id="imp-go" class="primary">Importuj</button></div>
+        <div class="row"><button id="imp-go" class="primary">Importuj</button>
+          <button id="imp-empty" class="ghost">albo zacznij pusty repertuar</button></div>
       </div>
       <div id="imp-result"></div>
     </section>
@@ -104,8 +105,11 @@
         </div>
         <select id="b-roots" hidden></select>
         <div id="b-line" class="line"></div>
-        <div id="b-comment" class="comment"></div>
         <div id="b-moves" class="moves"></div>
+        <label id="b-comment-box" class="comment-edit" hidden>
+          <span id="b-comment-label" class="muted small"></span>
+          <textarea id="b-comment" rows="3" placeholder="Np. plan, typowy błąd przeciwnika, na co uważać…"></textarea>
+        </label>
         <div class="row">
           <button id="b-start" class="ghost">⏮ Początek</button>
           <button id="b-back">← Cofnij</button>
@@ -161,6 +165,7 @@
     </section>
   </main>
 
+  <div id="toast" class="toast" role="status" hidden></div>
   <script type="module" src="app.js"></script>
 </body>
 </html>

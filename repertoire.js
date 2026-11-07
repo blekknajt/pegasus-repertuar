@@ -505,3 +505,62 @@ export function weakest(rep, n = 10) {
   }
   return out.sort((a, b) => b.srs.lapses - a.srs.lapses || a.srs.ease - b.srs.ease).slice(0, n);
 }
+
+// ---------------------------------------------------------------- edycja
+
+/** Dodaje ruch (obiekt chess.js) z pozycji `key`. Zwraca {edge, added}. */
+export function addMove(rep, key, mv) {
+  const node = rep.nodes[key];
+  const uci = mv.from + mv.to + (mv.promotion || "");
+  if (node.moves[uci]) return { edge: node.moves[uci], added: false };
+  const childKey = posKey(mv.after);
+  if (!rep.nodes[childKey]) rep.nodes[childKey] = { fen: mv.after, moves: {} };
+  const edge = (node.moves[uci] = { san: mv.san, to: childKey });
+  store.save();
+  return { edge, added: true };
+}
+
+function reachable(rep, skip) {
+  const seen = new Set();
+  const stack = [...rep.roots];
+  while (stack.length) {
+    const k = stack.pop();
+    if (seen.has(k) || !rep.nodes[k]) continue;
+    seen.add(k);
+    for (const [u, e] of Object.entries(rep.nodes[k].moves)) if (!(skip && skip.key === k && skip.uci === u)) stack.push(e.to);
+  }
+  return seen;
+}
+
+/** Co zniknie po usunięciu ruchu: {moves: liczba ruchów, userMoves, learned}. */
+export function deletePreview(rep, key, uci) {
+  const keep = reachable(rep, { key, uci });
+  let moves = 1, userMoves = 0, learned = 0;
+  const count = (node, e) => {
+    if (isUserNode(rep, node)) { userMoves++; if (e.srs) learned++; }
+  };
+  count(rep.nodes[key], rep.nodes[key].moves[uci]);
+  for (const [k, n] of Object.entries(rep.nodes)) {
+    if (keep.has(k)) continue;
+    for (const e of Object.values(n.moves)) { moves++; count(n, e); }
+  }
+  return { moves, userMoves, learned };
+}
+
+/** Usuwa ruch i wszystko, do czego nie da się już dojść inną drogą. */
+export function deleteMove(rep, key, uci) {
+  delete rep.nodes[key].moves[uci];
+  const keep = reachable(rep);
+  for (const k of Object.keys(rep.nodes)) if (!keep.has(k)) delete rep.nodes[k];
+  store.save();
+}
+
+/** Pusty repertuar od pozycji wyjściowej. */
+export function emptyRep(name, color) {
+  const rep = store.newRep(name, color);
+  const k = posKey(START_FEN);
+  rep.nodes[k] = { fen: START_FEN, moves: {} };
+  rep.roots.push(k);
+  store.save();
+  return rep;
+}

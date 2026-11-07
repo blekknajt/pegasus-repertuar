@@ -4,6 +4,7 @@ import { BoardView } from "./board.js";
 import {
   store, importPgn, inferColor, fetchLichessStudy, exportPgn, buildLine, grade, markLearned, counts,
   forecast, weakest, lineText, isUserNode, posKey, START_FEN, DAY,
+  addMove, deleteMove, deletePreview, emptyRep,
 } from "./repertoire.js";
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -629,7 +630,7 @@ function renderHome() {
           <div class="row">
             <button class="primary" data-act="review" ${c.due ? "" : "disabled"}>Powtórki <b>${c.due}</b></button>
             <button class="accent" data-act="learn" ${c.fresh ? "" : "disabled"}>Nowe ruchy <b>${Math.min(c.fresh, Number(settings().newPerSession) || 10)}</b></button>
-            <button data-act="browse">Przeglądaj</button>
+            <button data-act="browse">Edytuj</button>
             <button data-act="more" class="ghost" aria-label="Więcej">⋯</button>
           </div>
           <div class="more-menu" hidden>
@@ -777,9 +778,9 @@ function startTraining(rep, mode) {
   trainer.run(rep, mode);
 }
 
-// --- przeglądanie
+// --- edytor (przeglądanie, dodawanie, usuwanie, komentarze)
 
-const browse = { rep: null, path: [] };
+const browse = { rep: null, path: [], root: null };
 
 function openBrowse(rep) {
   browse.rep = rep;
@@ -790,44 +791,154 @@ function openBrowse(rep) {
   renderBrowse();
 }
 
+/** Bieżąca pozycja edytora: {chess, key, lastEdge, last, sans}. Ucina ścieżkę, jeśli ruch zniknął. */
+function browseState() {
+  const rep = browse.rep;
+  const chess = new Chess(rep.nodes[browse.root].fen);
+  let key = browse.root, lastEdge = null, last = null;
+  const sans = [];
+  for (let i = 0; i < browse.path.length; i++) {
+    const u = browse.path[i];
+    const e = rep.nodes[key] && rep.nodes[key].moves[u];
+    if (!e) { browse.path.length = i; break; }
+    const mv = chess.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] });
+    last = [mv.from, mv.to];
+    sans.push(mv.san);
+    lastEdge = e;
+    key = e.to;
+  }
+  return { chess, key, lastEdge, last, sans };
+}
+
+function toast(msg) {
+  const el = $("#toast");
+  el.textContent = msg;
+  el.hidden = false;
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => (el.hidden = true), 2600);
+}
+
+/** Ruch w edytorze: przejście do istniejącego albo dodanie nowego. */
+function browsePlay(mv) {
+  const rep = browse.rep;
+  const { key } = browseState();
+  const node = rep.nodes[key];
+  const userBefore = isUserNode(rep, node) ? Object.values(node.moves).map((e) => e.san) : [];
+  const { added } = addMove(rep, key, mv);
+  browse.path.push(uciOf(mv));
+  if (added) {
+    toast(userBefore.length ? `Dodano ${mv.san} — w tej pozycji masz teraz też: ${userBefore.join(", ")}` : `Dodano ruch ${mv.san}`);
+    beep("ok");
+  } else beep("move");
+  renderBrowse();
+}
+
 function renderBrowse() {
   const rep = browse.rep;
   const rootFen = rep.nodes[browse.root].fen;
-  const c = new Chess(rootFen);
-  let key = browse.root;
-  let last = null, lastEdge = null;
-  for (const u of browse.path) {
-    const mv = c.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] });
-    last = [mv.from, mv.to];
-    lastEdge = rep.nodes[key].moves[u];
-    key = lastEdge.to;
-  }
-  browseBoard.setPosition(c.fen());
+  const { chess, key, lastEdge, last, sans } = browseState();
+  browse.chess = chess;
+  browseBoard.setPosition(chess.fen());
   browseBoard.setHighlights({ last });
   const node = rep.nodes[key];
-  const edges = node ? Object.entries(node.moves) : [];
-  browseBoard.setArrows(edges.map(([u]) => ({ from: u.slice(0, 2), to: u.slice(2, 4), c: isUserNode(rep, node) ? "G" : "B" })));
-  const sans = [];
-  {
-    const c2 = new Chess(rootFen);
-    for (const u of browse.path) sans.push(c2.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] }).san);
-  }
+  const edges = Object.entries(node.moves);
+  const user = isUserNode(rep, node);
+  browseBoard.setArrows(edges.map(([u]) => ({ from: u.slice(0, 2), to: u.slice(2, 4), c: user ? "G" : "B" })));
+  const legal = chess.moves({ verbose: true });
+  browseBoard.setInteractive((sq) => legal.filter((m) => m.from === sq).map((m) => m.to));
+  browseBoard.onMove = (from, to) => {
+    const ms = legal.filter((m) => m.from === from && m.to === to);
+    if (!ms.length) return;
+    let m = ms[0];
+    if (ms.length > 1) {
+      const p = (prompt("Promocja na: h (hetman), w (wieża), g (goniec), s (skoczek)", "h") || "h").toLowerCase()[0];
+      m = ms.find((x) => x.promotion === ({ h: "q", w: "r", g: "b", s: "n" }[p] || "q")) || ms[0];
+    }
+    browsePlay(m);
+  };
+
   $("#b-title").textContent = rep.name;
   $("#b-line").textContent = sans.length ? lineText(rootFen, sans) : "(pozycja wyjściowa)";
-  $("#b-comment").textContent = lastEdge && lastEdge.comment ? lastEdge.comment : "";
   $("#b-roots").hidden = rep.roots.length < 2;
   $("#b-roots").innerHTML = rep.roots.map((r, i) => `<option value="${esc(r)}" ${r === browse.root ? "selected" : ""}>Pozycja startowa ${i + 1}${r === posKey(START_FEN) ? " (zwykła)" : ""}</option>`).join("");
-  const user = node && isUserNode(rep, node);
-  $("#b-moves").innerHTML = edges.length
-    ? `<p class="muted small">${user ? "Twoje ruchy" : "Ruchy przeciwnika"}:</p>` +
-      edges
-        .map(([u, e]) => {
-          let st = "";
-          if (user) st = !e.srs ? `<span class="pill">nowy</span>` : e.srs.due <= Date.now() ? `<span class="pill bad">do powtórki</span>` : `<span class="pill ok">${whenText(e.srs.due)}</span>`;
-          return `<button class="move-btn" data-uci="${u}"><b>${esc(e.san)}</b> ${st}${e.srs && e.srs.lapses ? `<span class="muted small"> błędy: ${e.srs.lapses}</span>` : ""}</button>`;
-        })
-        .join("")
-    : `<p class="muted">Koniec wariantu.</p>`;
+
+  const cbox = $("#b-comment-box");
+  cbox.hidden = !lastEdge;
+  if (lastEdge) {
+    $("#b-comment-label").textContent = `Komentarz do ruchu ${sans[sans.length - 1]}`;
+    const ta = $("#b-comment");
+    if (document.activeElement !== ta) ta.value = lastEdge.comment || "";
+  }
+
+  $("#b-moves").innerHTML =
+    `<p class="muted small">${user ? "Twoje ruchy" : "Ruchy przeciwnika"} — ${edges.length ? "stuknij, żeby przejść" : "brak"}. Nowy ruch dodasz, wykonując go na szachownicy${peg.state === "on" ? " (ekran albo Pegasus)" : ""}.</p>` +
+    edges
+      .map(([u, e]) => {
+        let st = "";
+        if (user) st = !e.srs ? `<span class="pill">nowy</span>` : e.srs.due <= Date.now() ? `<span class="pill bad">do powtórki</span>` : `<span class="pill ok">${whenText(e.srs.due)}</span>`;
+        return `<div class="move-row"><button class="move-btn" data-uci="${u}"><b>${esc(e.san)}</b> ${st}${e.srs && e.srs.lapses ? `<span class="muted small">błędy: ${e.srs.lapses}</span>` : ""}${e.comment ? `<span class="muted small" title="${esc(e.comment)}">💬</span>` : ""}</button><button class="ghost del" data-del="${u}" aria-label="Usuń ${esc(e.san)}" title="Usuń ruch i dalsze">🗑</button></div>`;
+      })
+      .join("");
+  syncBrowsePhysical();
+}
+
+function browseDelete(uci) {
+  const rep = browse.rep;
+  const { key } = browseState();
+  const e = rep.nodes[key].moves[uci];
+  const p = deletePreview(rep, key, uci);
+  const n = p.moves - 1;
+  const word = n === 1 ? "dalszy ruch" : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? "dalsze ruchy" : "dalszych ruchów";
+  const more = n > 0 ? ` i ${n} ${word} (Twoich: ${p.userMoves}${p.learned ? `, w tym poznanych: ${p.learned}` : ""})` : "";
+  if (!confirm(`Usunąć ${e.san}${more}?\n\nPozycje osiągalne inną kolejnością ruchów zostaną.`)) return;
+  deleteMove(rep, key, uci);
+  toast(`Usunięto ${e.san}`);
+  renderBrowse();
+}
+
+// Pegasus w edytorze: ruch na planszy = przejście/dodanie, cofnięcie na planszy = krok wstecz.
+const bphys = { touched: new Set(), timer: null };
+
+function syncBrowsePhysical() {
+  bphys.touched.clear();
+  clearTimeout(bphys.timer);
+  onBrowseOcc();
+}
+
+function onBrowseOcc(e) {
+  if (document.body.dataset.view !== "browse" || peg.state !== "on" || !browse.chess) return;
+  const occ = peg.occupied();
+  if (!occ) return;
+  if (e && e.detail && e.detail.square) bphys.touched.add(e.detail.square);
+  clearTimeout(bphys.timer);
+  const chess = browse.chess;
+  if (setEq(occ, occOf(chess))) {
+    bphys.touched.clear();
+    browseBoard.setDiff(null);
+    return;
+  }
+  // cofnięcie ruchu na planszy
+  if (browse.path.length) {
+    const prev = new Chess(browse.rep.nodes[browse.root].fen);
+    for (const u of browse.path.slice(0, -1)) prev.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] });
+    if (setEq(occ, occOf(prev))) {
+      browse.path.pop();
+      return renderBrowse();
+    }
+  }
+  const cands = matchMoves(chess, occ, bphys.touched);
+  if (cands.length) {
+    // ruch z repertuaru od razu, nowy po chwili (np. roszada zaczęta od wieży)
+    const node = browse.rep.nodes[browseState().key];
+    const known = cands.find((m) => node.moves[uciOf(m)]);
+    if (known) return browsePlay(known);
+    bphys.timer = setTimeout(() => browsePlay(cands[0]), 1300);
+    return;
+  }
+  bphys.timer = setTimeout(() => {
+    const want = occOf(chess);
+    browseBoard.setDiff({ missing: [...want].filter((x) => !occ.has(x)), extra: [...occ].filter((x) => !want.has(x)) });
+  }, 3000);
 }
 
 // --- statystyki
@@ -953,9 +1064,7 @@ async function main() {
   peg.rotated = !!settings().rotated;
 
   trainBoard = new BoardView($("#t-board"));
-  browseBoard = new BoardView($("#b-board"), {
-    onMove() {},
-  });
+  browseBoard = new BoardView($("#b-board"));
   trainer = new Trainer(trainBoard);
   trainBoard.setPosition(START_FEN);
 
@@ -985,10 +1094,31 @@ async function main() {
   $("#t-flip").addEventListener("click", () => trainBoard.setOrientation(trainBoard.orientation === "w" ? "b" : "w"));
 
   $("#b-moves").addEventListener("click", (e) => {
+    const d = e.target.closest("[data-del]");
+    if (d) return browseDelete(d.dataset.del);
     const b = e.target.closest("[data-uci]");
     if (!b) return;
     browse.path.push(b.dataset.uci);
     renderBrowse();
+  });
+  $("#b-comment").addEventListener("input", (e) => {
+    const { lastEdge } = browseState();
+    if (!lastEdge) return;
+    const v = e.target.value.trim();
+    if (v) lastEdge.comment = v;
+    else delete lastEdge.comment;
+    store.save();
+  });
+  $("#b-comment").addEventListener("change", () => renderBrowse());
+  peg.addEventListener("occ", onBrowseOcc);
+  $("#imp-empty").addEventListener("click", () => {
+    const name = $("#imp-name").value.trim() || "Nowy repertuar";
+    let color = $("#imp-color").value;
+    if (color === "auto") color = "w";
+    const rep = emptyRep(name, color);
+    $("#imp-name").value = "";
+    openBrowse(rep);
+    toast("Pusty repertuar — wykonuj ruchy na szachownicy, żeby je dodać");
   });
   $("#b-back").addEventListener("click", () => { browse.path.pop(); renderBrowse(); });
   $("#b-start").addEventListener("click", () => { browse.path = []; renderBrowse(); });

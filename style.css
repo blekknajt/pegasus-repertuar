@@ -170,7 +170,16 @@ fieldset.seg label:has(input:checked) { border-color: var(--accent); background:
 .line { font-family: ui-monospace, monospace; font-size: 0.95rem; color: var(--muted); }
 .progress { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .moves { display: flex; flex-direction: column; gap: 6px; }
-.move-btn { justify-content: flex-start; gap: 10px; }
+.move-btn { justify-content: flex-start; gap: 10px; flex: 1; }
+.move-row { display: flex; gap: 6px; }
+.move-row .del { min-width: 44px; padding: 8px; color: var(--danger); }
+.comment-edit { display: flex; flex-direction: column; gap: 4px; }
+.comment-edit textarea { font-family: inherit; font-size: 1rem; }
+.toast {
+  position: fixed; left: 50%; bottom: max(24px, env(safe-area-inset-bottom)); transform: translateX(-50%);
+  max-width: calc(100vw - 32px); padding: 10px 18px; border-radius: 10px; z-index: 50;
+  background: var(--text); color: var(--bg); box-shadow: 0 4px 16px rgba(0,0,0,.25);
+}
 
 /* --- szachownica */
 .board { position: relative; width: 100%; aspect-ratio: 1; user-select: none; touch-action: none; border-radius: 4px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,.25); }
