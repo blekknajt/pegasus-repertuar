@@ -52,6 +52,10 @@ export class Pegasus extends EventTarget {
     return s;
   }
 
+  log(msg) {
+    this.dispatchEvent(new CustomEvent("log", { detail: msg }));
+  }
+
   _setState(st, detail) {
     this.state = st;
     this.dispatchEvent(new CustomEvent("state", { detail: { state: st, ...detail } }));
@@ -59,11 +63,16 @@ export class Pegasus extends EventTarget {
 
   /** Wybór planszy (wymaga gestu użytkownika). */
   async pick() {
-    this.device = await navigator.bluetooth.requestDevice({
+    this.log("Otwieram listę urządzeń Bluetooth…");
+    const dev = await navigator.bluetooth.requestDevice({
       filters: [{ services: [NUS] }, { namePrefix: "Pegasus" }, { namePrefix: "DGT" }],
       optionalServices: [NUS],
     });
-    this.device.addEventListener("gattserverdisconnected", () => this._onDisconnect());
+    this.log(`Wybrano: ${dev.name || "(bez nazwy)"}`);
+    if (this.device !== dev) {
+      this.device = dev;
+      dev.addEventListener("gattserverdisconnected", () => this._onDisconnect());
+    }
     this.wantConnected = true;
     await this._connect();
   }
@@ -87,15 +96,25 @@ export class Pegasus extends EventTarget {
 
   async _connect() {
     this._setState("connecting");
-    const server = await this.device.gatt.connect();
-    const svc = await server.getPrimaryService(NUS);
+    const timeout = (p, ms, what) =>
+      Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`${what}: brak odpowiedzi po ${ms / 1000} s`)), ms))]);
+    this.log("Łączę z planszą…");
+    const server = await timeout(this.device.gatt.connect(), 20000, "Połączenie");
+    this.log("Połączono, szukam usługi UART…");
+    const svc = await timeout(server.getPrimaryService(NUS), 10000, "Usługa UART");
     this.rx = await svc.getCharacteristic(RX);
     const tx = await svc.getCharacteristic(TX);
     await tx.startNotifications();
-    tx.addEventListener("characteristicvaluechanged", (e) => this._onNotify(e.target.value));
+    if (this._txBound !== tx) {
+      // przy ponownym połączeniu ta sama charakterystyka — nie dubluj nasłuchu
+      tx.addEventListener("characteristicvaluechanged", (e) => this._onNotify(e.target.value));
+      this._txBound = tx;
+    }
     this.buf = [];
+    this.log("Wysyłam klucz i włączam powiadomienia o polach…");
     for (const cmd of [DEV_KEY, RESET, FIELD_UPDATES, LEDS_OFF]) await this.send(cmd, 120);
     await this.dump();
+    this.log("Gotowe ✓");
     this._setState("on", { name: this.device.name });
     this.readBattery();
     this._startTimers();

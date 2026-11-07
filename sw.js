@@ -1,5 +1,5 @@
 // Praca offline: najpierw sieć (świeże wersje), w razie braku — kopia z pamięci.
-const CACHE = "repertuar-v2";
+const CACHE = "repertuar-v3";
 const FILES = [
   "./", "index.html", "style.css", "app.js", "board.js", "pegasus.js", "repertoire.js",
   "lib/chess.js", "manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png",

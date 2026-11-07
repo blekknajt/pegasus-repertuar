@@ -1040,19 +1040,50 @@ function renderPeg() {
   $("#peg-test-leds").disabled = st !== "on";
 }
 
+function pegLog(msg, tone = "") {
+  const li = document.createElement("li");
+  li.textContent = msg;
+  if (tone) li.dataset.tone = tone;
+  $("#peg-log").append(li);
+}
+
+const BT_ERRORS = {
+  NotFoundError: "Nie wybrano planszy z listy. Jeśli lista była pusta: włącz Bluetooth i lokalizację na tablecie, w ustawieniach Androida daj Chrome uprawnienie „Urządzenia w pobliżu” (i „Lokalizacja”), rozłącz telefon z aplikacją DGT i sprawdź, czy plansza jest włączona (miga niebieska dioda).",
+  SecurityError: "Przeglądarka zablokowała Bluetooth dla tej strony. Sprawdź w Chrome: ⋮ → Ustawienia → Ustawienia witryn → Bluetooth.",
+  NotAllowedError: "Brak zgody na Bluetooth. Sprawdź w Chrome: ⋮ → Ustawienia → Ustawienia witryn → Bluetooth.",
+  NetworkError: "Plansza nie odpowiada. Wyłącz i włącz planszę, upewnij się, że telefon z aplikacją DGT jest rozłączony, i spróbuj ponownie.",
+  NotSupportedError: "To urządzenie nie wygląda na Pegasusa (brak usługi UART).",
+};
+
 async function onPegClick() {
   if (peg.state === "on" || peg.state === "lost") {
     if (confirm("Rozłączyć planszę?")) peg.disconnect();
     return;
   }
+  const dlg = $("#peg-dialog");
+  $("#peg-log").replaceChildren();
+  if (!dlg.open) dlg.showModal();
   if (!Pegasus.supported()) {
-    alert("Ta przeglądarka nie obsługuje Web Bluetooth. Otwórz aplikację w Chrome na Androidzie (adres https://…). Bez planszy możesz trenować na ekranie.");
+    const ua = navigator.userAgent;
+    pegLog("Ta przeglądarka nie obsługuje Web Bluetooth.", "bad");
+    if (/SamsungBrowser/.test(ua)) pegLog("To jest Samsung Internet — otwórz ten adres w Google Chrome.", "bad");
+    else if (/Firefox|FxiOS/.test(ua)) pegLog("Firefox nie obsługuje Bluetooth — otwórz ten adres w Google Chrome.", "bad");
+    else if (!isSecureContext) pegLog("Strona nie jest otwarta przez https.", "bad");
+    else pegLog("Otwórz ten adres w Google Chrome na Androidzie (aktualna wersja).", "bad");
+    pegLog(`Przeglądarka: ${ua}`, "muted");
     return;
   }
   try {
     await peg.pick();
+    setTimeout(() => dlg.open && dlg.close(), 1200);
   } catch (e) {
-    if (e.name !== "NotFoundError") alert("Nie udało się połączyć: " + (e.message || e) + "\n\nSprawdź, czy plansza jest włączona i czy telefon z aplikacją DGT nie jest z nią połączony.");
+    pegLog(BT_ERRORS[e.name] || `Błąd: ${e.message || e}`, "bad");
+    pegLog(`(${e.name}: ${e.message})`, "muted");
+    try {
+      if (navigator.bluetooth.getAvailability && !(await navigator.bluetooth.getAvailability()))
+        pegLog("Tablet zgłasza, że Bluetooth jest wyłączony lub niedostępny.", "bad");
+    } catch {}
+    if (peg.state === "connecting") peg.disconnect();
     renderPeg();
   }
 }
@@ -1161,6 +1192,9 @@ async function main() {
     setTimeout(() => peg.leds([]), 1500);
   });
   peg.addEventListener("state", renderPeg);
+  peg.addEventListener("log", (e) => $("#peg-dialog").open && pegLog(e.detail));
+  $("#peg-close").addEventListener("click", () => $("#peg-dialog").close());
+  $("#peg-retry").addEventListener("click", onPegClick);
   peg.addEventListener("battery", renderPeg);
   renderPeg();
 

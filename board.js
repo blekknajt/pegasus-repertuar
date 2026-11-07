@@ -40,7 +40,10 @@ export class BoardView {
     this.svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     this.svg.setAttribute("viewBox", "0 0 8 8");
     this.svg.classList.add("board-arrows");
-    el.append(this.grid, this.svg);
+    this.layer = document.createElement("div");
+    this.layer.className = "board-pieces";
+    this.sprites = []; // {el, piece, sq}
+    el.append(this.grid, this.layer, this.svg);
     this.squares = {};
     for (let i = 0; i < 64; i++) {
       const sq = document.createElement("div");
@@ -68,6 +71,7 @@ export class BoardView {
       this.squares[name] = cell;
     });
     this.render();
+    this._placeSprites(false);
   }
 
   setOrientation(c) {
@@ -77,9 +81,76 @@ export class BoardView {
   }
 
   setPosition(fen) {
-    this.pieces = parseFen(fen);
+    const next = parseFen(fen);
+    const same = Object.keys(next).length === Object.keys(this.pieces).length &&
+      Object.entries(next).every(([sq, p]) => this.pieces[sq] === p);
+    this.pieces = next;
     this.selected = null;
     this.render();
+    if (!same) this._syncSprites();
+  }
+
+  /** Dopasowuje figury na ekranie do pozycji: przesuwa te same bierki zamiast je podmieniać. */
+  _syncSprites() {
+    const want = { ...this.pieces };
+    const keep = [];
+    let free = [];
+    // 1) bierki, które stoją tam gdzie trzeba
+    for (const sp of this.sprites) {
+      if (want[sp.sq] === sp.piece) {
+        keep.push(sp);
+        delete want[sp.sq];
+      } else free.push(sp);
+    }
+    // 2) ruch: najbliższa wolna bierka tego samego rodzaju
+    const dist = (a, b) => Math.abs(a.charCodeAt(0) - b.charCodeAt(0)) + Math.abs(a[1] - b[1]);
+    const moved = [];
+    for (const [sq, piece] of Object.entries(want)) {
+      const cands = free.filter((sp) => sp.piece === piece).sort((x, y) => dist(x.sq, sq) - dist(y.sq, sq));
+      if (cands.length) {
+        const sp = cands[0];
+        free = free.filter((x) => x !== sp);
+        sp.sq = sq;
+        moved.push(sp);
+      } else {
+        const img = document.createElement("img");
+        img.className = "piece appear";
+        img.src = PIECE_IMG[piece];
+        img.alt = "";
+        img.draggable = false;
+        img.style.transition = "opacity .25s";
+        img.style.transform = this._tf(sq);
+        this.layer.append(img);
+        const sp = { el: img, piece, sq };
+        moved.push(sp);
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          img.classList.remove("appear");
+          img.style.transition = "";
+        }));
+      }
+    }
+    // 3) zbite / zdjęte — znikają pod spodem
+    for (const sp of free) {
+      sp.el.classList.add("gone");
+      setTimeout(() => sp.el.remove(), 260);
+    }
+    this.sprites = keep.concat(moved);
+    for (const sp of moved) sp.el.style.zIndex = 2;
+    for (const sp of keep) sp.el.style.zIndex = 1;
+    this._placeSprites(true);
+  }
+
+  _tf(sq) {
+    const f = FILES.indexOf(sq[0]), r = Number(sq[1]) - 1;
+    const x = this.orientation === "w" ? f : 7 - f;
+    const y = this.orientation === "w" ? 7 - r : r;
+    return `translate(${x * 100}%, ${y * 100}%)`;
+  }
+
+  _placeSprites(animate) {
+    this.layer.classList.toggle("no-anim", !animate);
+    for (const sp of this.sprites) sp.el.style.transform = this._tf(sp.sq);
+    if (!animate) void this.layer.offsetWidth;
   }
 
   /** hl: {last:[a,b], hint:[..], good:[..], bad:[..], check: sq} */
@@ -111,7 +182,6 @@ export class BoardView {
     const dests = this.selected && this.dests ? this.dests(this.selected) : [];
     for (const [name, cell] of Object.entries(this.squares)) {
       const p = this.pieces[name];
-      cell.style.backgroundImage = p ? `url(${PIECE_IMG[p]})` : "";
       cell.classList.toggle("has-piece", !!p);
       cell.classList.toggle("last", mark(hl.last, name));
       cell.classList.toggle("hint", mark(hl.hint, name));
