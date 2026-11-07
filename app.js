@@ -9,7 +9,7 @@ import {
   addMove, deleteMove, deletePreview, emptyRep, validateBackup,
 } from "./repertoire.js";
 
-const VERSION = "2026-11-07 l";
+const VERSION = "2026-11-07 m";
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -335,6 +335,7 @@ class Trainer {
   }
 
   async showMove(step, learn) {
+    this.hintFor = null;
     const m = this.verbose(step.uci);
     for (;;) {
       this.status(learn ? `Nowy ruch: ${step.san}` : `Zagraj: ${step.san}`, learn ? "Zapamiętaj go — za chwilę sprawdzian." : "Ten ruch znasz — tylko przypomnienie.", learn ? "new" : "");
@@ -362,7 +363,7 @@ class Trainer {
     this.hintFor = () => {
       if (!failed) {
         failed = true;
-        this.fail(step, line);
+        if (step.target) this.fail(step, line);
       }
       this.show({ arrows: [{ from: m.from, to: m.to, c: "R" }], hl: { hint: [m.from, m.to] } });
       if (this.physical()) peg.leds(moveSquares(m));
@@ -376,32 +377,39 @@ class Trainer {
       const uci = uciOf(got);
       if (uci === step.uci) break;
       if (alts.includes(uci)) {
-        this.status(`${got.san} też jest w repertuarze`, "Ale teraz ćwiczymy inny wariant — cofnij ruch.", "warn");
-        this.show({ arrows: [{ from: got.from, to: got.to, c: "Y" }] });
+        this.status(`${got.san} też jest w repertuarze`, `W tym wariancie zagraj ${step.san}. Cofnij ruch.`, "warn");
+        this.show({ arrows: [{ from: m.from, to: m.to, c: "G" }], hl: { hint: [m.from, m.to] } });
         beep("move");
         await this.takeBack(got);
         if (!this.physical()) await this.sleep(900);
-        this.status("Twój ruch", "Inny ruch z repertuaru.");
-        this.show();
+        if (this.physical()) peg.leds(moveSquares(m));
+        this.status(`Zagraj: ${step.san}`, "To ruch ćwiczonego wariantu.", "warn");
+        this.show({ arrows: [{ from: m.from, to: m.to, c: "G" }], hl: { hint: [m.from, m.to] } });
         continue;
       }
       beep("bad");
       if (!failed) {
         failed = true;
-        this.fail(step, line);
+        if (step.target) this.fail(step, line);
       }
-      this.show({ arrows: [{ from: got.from, to: got.to, c: "R" }, { from: m.from, to: m.to, c: "G" }], hl: { bad: [got.from, got.to] } });
-      this.status(`Źle: ${got.san}. Poprawnie: ${step.san}`, this.physical() ? "Cofnij ruch (miga na planszy), potem zagraj poprawny." : "Zagraj poprawny ruch.", "bad");
+      const fork = alts.length > 1;
+      this.show({ arrows: [{ from: got.from, to: got.to, c: "R" }, ...(fork ? [{ from: m.from, to: m.to, c: "G" }] : [])], hl: { bad: [got.from, got.to] } });
+      this.status(fork ? `Źle: ${got.san}. Poprawnie: ${step.san}` : `Źle: ${got.san}`, this.physical() ? "Cofnij ruch (miga na planszy)." : "Spróbuj ponownie.", "bad");
       if (this.physical()) await this.takeBack(got);
       else await this.sleep(1300);
-      if (this.physical()) peg.leds(moveSquares(m));
-      this.show({ arrows: [{ from: m.from, to: m.to, c: "G" }], hl: { hint: [m.from, m.to] } });
-      this.status(`Zagraj: ${step.san}`, `(zagrałeś ${got.san})`, "bad");
+      if (fork) {
+        if (this.physical()) peg.leds(moveSquares(m));
+        this.show({ arrows: [{ from: m.from, to: m.to, c: "G" }], hl: { hint: [m.from, m.to] } });
+        this.status(`Zagraj: ${step.san}`, `(zagrałeś ${got.san})`, "bad");
+      } else {
+        this.show();
+        this.status("Twój ruch", "Spróbuj ponownie lub użyj Podpowiedzi.", "bad");
+      }
     }
     this.hintFor = null;
     if (this.physical()) peg.leds([]);
     this.apply(m);
-    if (!failed) {
+    if (step.target && !failed) {
       grade(step.edge, true, line);
       store.logReview(this.rep, true);
       this.stats.ok++;
@@ -451,10 +459,9 @@ class Trainer {
     this.pos = new Chess(positions[target].fen());
     this.lastMove = null;
     this.show();
-    const sans = steps.slice(0, target).map((s) => s.san);
     this.status(
       "Ustaw pozycję jak na ekranie",
-      `${sans.length ? "Wracamy do: " + lineText(rootFen, sans) + ". " : "Pozycja wyjściowa. "}Świecą pola do zmiany — czerwona ramka: zdejmij, niebieska: postaw.`,
+      "Świecą pola do zmiany — czerwona ramka: zdejmij, niebieska: postaw.",
       "warn"
     );
     const idx = await this.waitOcc(positions.slice(0, target + 1), { showDiffFor: target, ledDiff: true, diffDelay: 250 });
@@ -475,6 +482,7 @@ class Trainer {
     let k = 0;
     while (k < this.played.length && k < steps.length && this.played[k] === steps[k].uci) k++;
     k = Math.min(k, steps.findIndex((s) => s.target)); // wróć co najmniej przed pierwszy cel
+    $("#t-line").textContent = "";
     if (this.physical()) k = await this.navigate(rootFen, steps, k);
     this.pos = this.positionsOf(rootFen, steps.slice(0, k).map((s) => s.uci))[k];
     this.lastMove = null;
@@ -485,6 +493,7 @@ class Trainer {
       const step = steps[i];
       this.renderLine(steps, i, rootFen);
       const line = lineText(rootFen, sans.slice(0, i + 1));
+      $("#t-hint").hidden = !step.user || (step.target && phase === "show");
       if (!step.user) await this.opponentMove(step);
       else if (step.target && phase === "show") {
         await this.showMove(step, true);
@@ -493,7 +502,7 @@ class Trainer {
         this.stats.learned++;
         this.renderStats();
       } else if (step.target) await this.quizMove(step, line);
-      else await this.showMove(step, false);
+      else await this.quizMove(step, line);
       this.played = steps.slice(0, i + 1).map((s) => s.uci);
       this.renderLine(steps, i + 1, rootFen);
     }
@@ -514,7 +523,8 @@ class Trainer {
     this.lastMove = null;
     this.board.setOrientation(rep.color);
     $("#t-title").textContent = `${rep.name} — ${mode === "learn" ? "nowe ruchy" : "powtórki"}`;
-    $("#t-hint").hidden = mode === "learn";
+    $("#t-hint").hidden = true;
+    this.hintFor = null;
     this.renderStats();
     let wake = null;
     let pausedStatus = null;
@@ -592,6 +602,8 @@ class Trainer {
     const c = counts(this.rep);
     beep("done");
     this.board.setArrows([]);
+    this.hintFor = null;
+    $("#t-hint").hidden = true;
     if (this.mode === "learn")
       this.status(s.learned ? `Poznane nowe ruchy: ${s.learned}` : "Brak nowych ruchów", `Sprawdzian: ✓ ${s.ok}  ✗ ${s.fail}. Nowych zostało: ${c.fresh}.`, "good");
     else
