@@ -13,3 +13,8 @@ Protokół planszy: nieoficjalny opis https://dgtcentaurmods.github.io/pegasus-p
 Biblioteki: [chess.js](https://github.com/jhlywa/chess.js) (BSD-2), figury „cburnett” z Lichess (CC BY-SA 3.0, Colin M.L. Burnett),
 [Stockfish.js](https://github.com/nmrugg/stockfish.js) 17.1 lite (GPLv3, licencja w `lib/stockfish/Copying.txt`; źródła: https://github.com/official-stockfish/Stockfish).
 Ocena z chmury: https://lichess.org/api#tag/Analysis.
+
+Testy: `node --test tests/core.test.mjs`. Sprawdzają import wariantów, transpozycje,
+odczyt planszy po ponownym połączeniu i poprawność kopii zapasowej. Jeśli obok
+repozytorium są prywatne eksporty Chessbooka, test obejmie je również; pliki PGN
+nie są publikowane.

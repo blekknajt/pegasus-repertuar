@@ -6,10 +6,10 @@ import { lichess, explore } from "./lichess.js";
 import {
   store, importPgn, inferColor, fetchLichessStudy, exportPgn, buildLine, grade, markLearned, counts,
   forecast, weakest, lineText, isUserNode, posKey, START_FEN, DAY,
-  addMove, deleteMove, deletePreview, emptyRep,
+  addMove, deleteMove, deletePreview, emptyRep, validateBackup,
 } from "./repertoire.js";
 
-const VERSION = "2026-11-07 j";
+const VERSION = "2026-11-07 k";
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -106,7 +106,8 @@ class Trainer {
   }
 
   physical() {
-    return peg.state === "on" && !!peg.occ;
+    // Tryb wybrany na początku sesji pozostaje aktywny także podczas ponownego łączenia.
+    return this.running ? this.usingBoard : peg.state === "on" && !!peg.occ;
   }
 
   // --- wyświetlanie
@@ -186,9 +187,9 @@ class Trainer {
     return this._wait((done, onCleanup) => {
       let diffTimer = null;
       const check = () => {
+        clearTimeout(diffTimer);
         const occ = peg.occupied();
         if (!occ) return;
-        clearTimeout(diffTimer);
         const i = sets.findIndex((s) => setEq(s, occ));
         if (i >= 0) {
           this.board.setDiff(null);
@@ -211,8 +212,10 @@ class Trainer {
       };
       const h = () => check();
       peg.addEventListener("occ", h);
+      peg.addEventListener("state", h);
       onCleanup(() => {
         peg.removeEventListener("occ", h);
+        peg.removeEventListener("state", h);
         clearTimeout(diffTimer);
         this.board.setDiff(null);
       });
@@ -228,11 +231,11 @@ class Trainer {
         const touched = new Set();
         let timer = null, diffTimer = null;
         const check = (e) => {
+          clearTimeout(timer);
+          clearTimeout(diffTimer);
           const occ = peg.occupied();
           if (!occ) return;
           if (e && e.detail && e.detail.square) touched.add(e.detail.square);
-          clearTimeout(timer);
-          clearTimeout(diffTimer);
           this.board.setDiff(null);
           if (setEq(occ, base)) {
             touched.clear();
@@ -251,8 +254,10 @@ class Trainer {
             }, 4000);
         };
         peg.addEventListener("occ", check);
+        peg.addEventListener("state", check);
         onCleanup(() => {
           peg.removeEventListener("occ", check);
+          peg.removeEventListener("state", check);
           clearTimeout(timer);
           clearTimeout(diffTimer);
           this.board.setDiff(null);
@@ -499,6 +504,7 @@ class Trainer {
   async run(rep, mode) {
     this.rep = rep;
     this.mode = mode;
+    this.usingBoard = peg.state === "on" && !!peg.occ;
     this.running = true;
     this.stats = { ok: 0, fail: 0, learned: 0 };
     this.retry = new Set();
@@ -511,6 +517,23 @@ class Trainer {
     $("#t-hint").hidden = mode === "learn";
     this.renderStats();
     let wake = null;
+    let pausedStatus = null;
+    const onConnection = () => {
+      if (!this.usingBoard) return;
+      if (peg.state === "lost" || peg.state === "connecting" || peg.state === "off") {
+        if (!pausedStatus) pausedStatus = [$("#t-status").textContent, $("#t-sub").textContent, $("#t-status").dataset.tone];
+        this.status(
+          peg.state === "off" ? "Plansza rozłączona" : "Łączę ponownie z planszą…",
+          peg.state === "off" ? "Połącz ją ponownie albo zakończ trening." : "Trening wznowi się po odczytaniu pozycji.",
+          "warn"
+        );
+        this.board.setDiff(null);
+      } else if (peg.state === "on" && pausedStatus) {
+        this.status(...pausedStatus);
+        pausedStatus = null;
+      }
+    };
+    if (this.usingBoard) peg.addEventListener("state", onConnection);
     try {
       wake = await navigator.wakeLock?.request("screen");
     } catch {}
@@ -556,6 +579,7 @@ class Trainer {
         this.status("Błąd", String(e.message || e), "bad");
       }
     } finally {
+      peg.removeEventListener("state", onConnection);
       this.running = false;
       store.save();
       try { wake && wake.release(); } catch {}
@@ -893,7 +917,9 @@ function renderBrowse() {
 
 const fmtN = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + " mln" : n >= 1e4 ? Math.round(n / 1e3) + " tys." : String(n));
 
+let dbRequest = 0;
 async function renderDb(chess, node) {
+  const request = ++dbRequest;
   const on = !!settings().dbOn;
   $("#b-db-toggle").setAttribute("aria-pressed", String(on));
   const box = $("#b-db");
@@ -907,7 +933,7 @@ async function renderDb(chess, node) {
   $("#b-db-opening").textContent = "";
   try {
     const d = await explore(fen, src, { ratings: settings().liRatings, speeds: settings().liSpeeds });
-    if (fen !== browse.chess?.fen()) return;
+    if (request !== dbRequest || fen !== browse.chess?.fen()) return;
     $("#b-db-opening").textContent = d.opening ? `${d.opening.eco} ${d.opening.name}` : "";
     if (!d.moves.length) {
       body.innerHTML = `<p class="muted small">Brak partii z tej pozycji w bazie ${src === "masters" ? "mistrzów" : "Lichess"}.</p>`;
@@ -923,7 +949,7 @@ async function renderDb(chess, node) {
     };
     body.innerHTML = `<table class="db-table">${d.moves.map(row).join("")}<tr class="db-total"><td>razem</td><td></td><td class="num">${fmtN(d.total)}</td><td></td></tr></table>`;
   } catch (e) {
-    if (fen !== browse.chess?.fen()) return;
+    if (request !== dbRequest || fen !== browse.chess?.fen()) return;
     body.innerHTML = `<p class="small">${esc(e.message)}${e.code === "auth" ? ` <button class="ghost" data-go="settings">Ustawienia</button>` : ""}</p>`;
   }
 }
@@ -1315,8 +1341,7 @@ async function main() {
     const f = e.target.files[0];
     if (!f) return;
     try {
-      const d = JSON.parse(await f.text());
-      if (!Array.isArray(d.reps)) throw new Error("To nie jest kopia zapasowa tej aplikacji.");
+      const d = validateBackup(JSON.parse(await f.text()));
       if (!confirm(`Przywrócić kopię (${d.reps.length} repertuarów)? Obecne dane zostaną zastąpione.`)) return;
       store.data = { reps: [], log: [], settings: {}, ...d };
       await store.saveNow();
@@ -1333,7 +1358,10 @@ async function main() {
     await peg.leds(["d4", "e4", "d5", "e5"]);
     setTimeout(() => peg.leds([]), 1500);
   });
-  peg.addEventListener("state", renderPeg);
+  peg.addEventListener("state", () => {
+    renderPeg();
+    if (peg.state === "on") onBrowseOcc();
+  });
   peg.addEventListener("log", (e) => $("#peg-dialog").open && pegLog(e.detail));
   $("#peg-close").addEventListener("click", () => $("#peg-dialog").close());
   $("#peg-retry").addEventListener("click", onPegClick);
@@ -1355,6 +1383,12 @@ async function main() {
   window.__app = { peg, trainer }; // do diagnostyki z konsoli
 
   if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+
+  // Na tablecie aplikacja bywa usuwana z pamięci bez ostrzeżenia. Zapisz bieżące zmiany,
+  // kiedy użytkownik ją chowa, nie czekając na krótki timer zapisu.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") store.saveNow().catch(console.error);
+  });
 }
 
 main();

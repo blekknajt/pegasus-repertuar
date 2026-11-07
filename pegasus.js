@@ -28,6 +28,7 @@ export class Pegasus extends EventTarget {
     this.queue = Promise.resolve();
     this.wantConnected = false;
     this._timers = [];
+    this._ledState = { squares: [], options: {} };
   }
 
   static supported() {
@@ -71,7 +72,9 @@ export class Pegasus extends EventTarget {
     this.log(`Wybrano: ${dev.name || "(bez nazwy)"}`);
     if (this.device !== dev) {
       this.device = dev;
-      dev.addEventListener("gattserverdisconnected", () => this._onDisconnect());
+      dev.addEventListener("gattserverdisconnected", () => {
+        if (this.device === dev) this._onDisconnect();
+      });
     }
     this.wantConnected = true;
     await this._connect();
@@ -83,21 +86,33 @@ export class Pegasus extends EventTarget {
     const devs = await navigator.bluetooth.getDevices();
     const dev = devs.find((d) => /pegasus|dgt/i.test(d.name || ""));
     if (!dev) return false;
-    this.device = dev;
-    dev.addEventListener("gattserverdisconnected", () => this._onDisconnect());
+    if (this.device !== dev) {
+      this.device = dev;
+      dev.addEventListener("gattserverdisconnected", () => {
+        if (this.device === dev) this._onDisconnect();
+      });
+    }
     this.wantConnected = true;
     try {
       await this._connect();
       return true;
     } catch {
+      this.disconnect();
       return false;
     }
   }
 
   async _connect() {
     this._setState("connecting");
-    const timeout = (p, ms, what) =>
-      Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`${what}: brak odpowiedzi po ${ms / 1000} s`)), ms))]);
+    // Odczyt sprzed rozłączenia nie opisuje już bieżącej pozycji planszy.
+    this.occ = null;
+    const timeout = (p, ms, what) => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`${what}: brak odpowiedzi po ${ms / 1000} s`)), ms);
+      Promise.resolve(p).then(
+        (value) => { clearTimeout(timer); resolve(value); },
+        (error) => { clearTimeout(timer); reject(error); }
+      );
+    });
     this.log("Łączę z planszą…");
     const server = await timeout(this.device.gatt.connect(), 20000, "Połączenie");
     this.log("Połączono, szukam usługi UART…");
@@ -113,11 +128,29 @@ export class Pegasus extends EventTarget {
     this.buf = [];
     this.log("Wysyłam klucz i włączam powiadomienia o polach…");
     for (const cmd of [DEV_KEY, RESET, FIELD_UPDATES, LEDS_OFF]) await this.send(cmd, 120);
+    const snapshot = this._awaitSnapshot(5000);
     await this.dump();
+    await snapshot;
     this.log("Gotowe ✓");
     this._setState("on", { name: this.device.name });
+    await this._writeLeds(this._ledState.squares, this._ledState.options);
     this.readBattery();
     this._startTimers();
+  }
+
+  _awaitSnapshot(ms) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.removeEventListener("snapshot", onSnapshot);
+        reject(new Error("Plansza nie przesłała stanu pól. Wyłącz i włącz ją, a potem połącz ponownie."));
+      }, ms);
+      const onSnapshot = () => {
+        clearTimeout(timer);
+        this.removeEventListener("snapshot", onSnapshot);
+        resolve();
+      };
+      this.addEventListener("snapshot", onSnapshot);
+    });
   }
 
   _startTimers() {
@@ -135,26 +168,34 @@ export class Pegasus extends EventTarget {
   async _onDisconnect() {
     this._stopTimers();
     this.rx = null;
+    this.occ = null;
     if (!this.wantConnected) {
       this._setState("off");
       return;
     }
+    if (this._reconnecting) return;
+    this._reconnecting = true;
     this._setState("lost");
-    for (let attempt = 0; this.wantConnected; attempt++) {
-      await new Promise((r) => setTimeout(r, Math.min(1000 * (attempt + 1), 5000)));
-      if (!this.wantConnected) break;
-      try {
-        await this._connect();
-        return;
-      } catch {
-        this._setState("lost", { attempt: attempt + 1 });
+    try {
+      for (let attempt = 0; this.wantConnected; attempt++) {
+        await new Promise((r) => setTimeout(r, Math.min(1000 * (attempt + 1), 5000)));
+        if (!this.wantConnected) break;
+        try {
+          await this._connect();
+          return;
+        } catch {
+          if (this.wantConnected) this._setState("lost", { attempt: attempt + 1 });
+        }
       }
+    } finally {
+      this._reconnecting = false;
     }
   }
 
   disconnect() {
     this.wantConnected = false;
     this._stopTimers();
+    this.occ = null;
     if (this.device && this.device.gatt.connected) {
       this.leds([]).finally(() => this.device.gatt.disconnect());
     }
@@ -184,6 +225,11 @@ export class Pegasus extends EventTarget {
 
   /** Zapala diody na podanych polach (pusta lista = zgaś). */
   leds(squares, { blink = 0, speed = 3, intensity = 3 } = {}) {
+    this._ledState = { squares: [...(squares || [])], options: { blink, speed, intensity } };
+    return this._writeLeds(this._ledState.squares, this._ledState.options);
+  }
+
+  _writeLeds(squares, { blink = 0, speed = 3, intensity = 3 } = {}) {
     if (!squares || !squares.length) return this.send(LEDS_OFF).catch(() => {});
     const body = [5, speed, blink, intensity, ...squares.map((s) => this.sqIndex(s)), 0];
     return this.send([96, body.length, ...body]).catch(() => {});
@@ -215,9 +261,11 @@ export class Pegasus extends EventTarget {
       const changed = !this.occ || occ.some((v, i) => v !== this.occ[i]);
       this.occ = occ;
       if (changed) this.dispatchEvent(new CustomEvent("occ", { detail: { square: null } }));
+      this.dispatchEvent(new Event("snapshot"));
     } else if (t === 142 && msg.length >= 5) {
       if (msg[3] < 64) {
-        if (!this.occ) this.occ = new Uint8Array(64);
+        // Zdarzenie pojedynczego pola nie wystarcza do odtworzenia całej planszy.
+        if (!this.occ) return;
         this.occ[msg[3]] = msg[4];
         this.dispatchEvent(
           new CustomEvent("occ", { detail: { square: this.sqName(msg[3]), placed: !!msg[4] } })
