@@ -1,5 +1,5 @@
 // Praca offline: najpierw sieć (świeże wersje), w razie braku — kopia z pamięci.
-const CACHE = "repertuar-v3";
+const CACHE = "repertuar-v4";
 const FILES = [
   "./", "index.html", "style.css", "app.js", "board.js", "pegasus.js", "repertoire.js",
   "lib/chess.js", "manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png",
@@ -21,7 +21,8 @@ self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== location.origin) return;
   e.respondWith(
-    fetch(e.request)
+    // no-cache: zawsze pytaj serwer o świeżą wersję (omija 10-min pamięć GitHub Pages)
+    fetch(e.request.url, { cache: "no-cache" })
       .then((r) => {
         const copy = r.clone();
         caches.open(CACHE).then((c) => c.put(e.request, copy));

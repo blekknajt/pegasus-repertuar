@@ -7,6 +7,7 @@ import {
   addMove, deleteMove, deletePreview, emptyRep,
 } from "./repertoire.js";
 
+const VERSION = "2026-11-07 d";
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -1016,6 +1017,7 @@ function renderStats() {
 
 function renderSettings() {
   const s = settings();
+  $("#set-version").textContent = `Wersja aplikacji: ${VERSION}`;
   $("#set-new").value = s.newPerSession || 10;
   $("#set-sound").checked = s.sound !== false;
   $("#set-hintleds").checked = s.hintLeds !== false;
