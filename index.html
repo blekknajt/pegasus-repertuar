@@ -109,10 +109,21 @@
           <button id="b-start" class="ghost" aria-label="Na początek">⏮</button>
           <button id="b-back">← Cofnij</button>
           <button id="b-eval-toggle" class="ghost" aria-pressed="false">Ocena</button>
+          <button id="b-db-toggle" class="ghost" aria-pressed="false">Baza</button>
         </div>
         <div id="b-eval" class="eval" hidden></div>
       </div>
       <div class="ed-scroll">
+        <div id="b-db" class="db" hidden>
+          <div class="db-head">
+            <fieldset class="seg small-seg">
+              <label><input type="radio" name="dbsrc" value="lichess" checked> Lichess</label>
+              <label><input type="radio" name="dbsrc" value="masters"> Mistrzowie</label>
+            </fieldset>
+            <span id="b-db-opening" class="muted small"></span>
+          </div>
+          <div id="b-db-body"></div>
+        </div>
         <div id="b-moves" class="moves"></div>
         <label id="b-comment-box" class="comment-edit" hidden>
           <span id="b-comment-label" class="muted small"></span>
@@ -153,6 +164,36 @@
         <label class="check"><input type="checkbox" id="set-hintleds"> Zapalaj diody przy podpowiedziach i znanych ruchach</label>
         <div class="row"><button id="peg-test-leds" disabled>Test diod (d4 e4 d5 e5)</button></div>
         <p class="muted small">Wskazówki: tylko jedno urządzenie naraz — rozłącz telefon z aplikacją DGT. Figury stawiaj na środku pól.</p>
+      </div>
+      <div class="card form">
+        <h3>Konto Lichess (baza partii)</h3>
+        <p id="li-status" class="small"></p>
+        <div class="row" style="margin-top:0">
+          <button id="li-login" class="primary">Zaloguj przez Lichess</button>
+          <button id="li-logout" class="ghost" hidden>Wyloguj</button>
+        </div>
+        <details>
+          <summary class="small">albo wklej token ręcznie</summary>
+          <p class="muted small">Utwórz token na lichess.org/account/oauth/token (bez zaznaczania uprawnień) i wklej tutaj.</p>
+          <div class="row" style="margin-top:0"><input id="li-token" type="password" autocomplete="off" placeholder="lip_…"><button id="li-token-save">Zapisz</button></div>
+        </details>
+        <label>Rankingi graczy w bazie Lichess
+          <select id="li-ratings">
+            <option value="1400,1600,1800">1400–1800</option>
+            <option value="1600,1800,2000">1600–2000</option>
+            <option value="1800,2000,2200,2500">1800 i więcej</option>
+            <option value="2000,2200,2500">2000 i więcej</option>
+            <option value="2200,2500">2200 i więcej</option>
+          </select>
+        </label>
+        <label>Tempo gry
+          <select id="li-speeds">
+            <option value="blitz,rapid,classical">blitz + rapid + klasyczne</option>
+            <option value="rapid,classical">rapid + klasyczne</option>
+            <option value="bullet,blitz">bullet + blitz</option>
+            <option value="blitz">blitz</option>
+          </select>
+        </label>
       </div>
       <div class="card form">
         <h3>Trening</h3>

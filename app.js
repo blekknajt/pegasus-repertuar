@@ -2,13 +2,14 @@ import { Chess } from "./lib/chess.js";
 import { Pegasus } from "./pegasus.js";
 import { BoardView } from "./board.js";
 import { Engine, scoreText } from "./engine.js";
+import { lichess, explore } from "./lichess.js";
 import {
   store, importPgn, inferColor, fetchLichessStudy, exportPgn, buildLine, grade, markLearned, counts,
   forecast, weakest, lineText, isUserNode, posKey, START_FEN, DAY,
   addMove, deleteMove, deletePreview, emptyRep,
 } from "./repertoire.js";
 
-const VERSION = "2026-11-07 h";
+const VERSION = "2026-11-07 i";
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -898,6 +899,55 @@ function renderBrowse() {
       .join("");
   syncBrowsePhysical();
   renderEval(chess, node);
+  renderDb(chess, node);
+}
+
+// --- baza partii Lichess w edytorze
+
+const fmtN = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + " mln" : n >= 1e4 ? Math.round(n / 1e3) + " tys." : String(n));
+
+async function renderDb(chess, node) {
+  const on = !!settings().dbOn;
+  $("#b-db-toggle").setAttribute("aria-pressed", String(on));
+  const box = $("#b-db");
+  box.hidden = !on;
+  if (!on) return;
+  const src = settings().dbSrc || "lichess";
+  $$("input[name=dbsrc]").forEach((r) => (r.checked = r.value === src));
+  const body = $("#b-db-body");
+  const fen = chess.fen();
+  body.innerHTML = `<p class="muted small">Wczytuję…</p>`;
+  $("#b-db-opening").textContent = "";
+  try {
+    const d = await explore(fen, src, { ratings: settings().liRatings, speeds: settings().liSpeeds });
+    if (fen !== browse.chess?.fen()) return;
+    $("#b-db-opening").textContent = d.opening ? `${d.opening.eco} ${d.opening.name}` : "";
+    if (!d.moves.length) {
+      body.innerHTML = `<p class="muted small">Brak partii z tej pozycji w bazie ${src === "masters" ? "mistrzów" : "Lichess"}.</p>`;
+      return;
+    }
+    const inRep = new Set(Object.values(node.moves).map((e) => e.san));
+    const pct = (a, n) => (n ? Math.round((100 * a) / n) : 0);
+    const row = (m) => {
+      const w = pct(m.white, m.games), dr = pct(m.draws, m.games), b = 100 - w - dr;
+      return `<tr data-san="${esc(m.san)}"><td class="san">${esc(m.san)} ${inRep.has(m.san) ? `<span class="pill ok" title="w repertuarze">✓</span>` : ""}</td>
+        <td class="num">${pct(m.games, d.total)}%</td><td class="num muted">${fmtN(m.games)}</td>
+        <td><div class="wdl" title="białe ${w}% · remis ${dr}% · czarne ${b}%"><span class="w" style="width:${w}%">${w > 12 ? w + "%" : ""}</span><span class="d" style="width:${dr}%">${dr > 12 ? dr + "%" : ""}</span><span class="b" style="width:${b}%">${b > 12 ? b + "%" : ""}</span></div></td></tr>`;
+    };
+    body.innerHTML = `<table class="db-table">${d.moves.map(row).join("")}<tr class="db-total"><td>razem</td><td></td><td class="num">${fmtN(d.total)}</td><td></td></tr></table>`;
+  } catch (e) {
+    if (fen !== browse.chess?.fen()) return;
+    body.innerHTML = `<p class="small">${esc(e.message)}${e.code === "auth" ? ` <button class="ghost" data-go="settings">Ustawienia</button>` : ""}</p>`;
+  }
+}
+
+function renderLichess() {
+  const u = lichess.user();
+  $("#li-status").innerHTML = u ? `Zalogowany jako <b>${esc(u)}</b> ✓` : `<span class="muted">Niezalogowany — baza partii wymaga konta Lichess (darmowe).</span>`;
+  $("#li-login").hidden = !!u;
+  $("#li-logout").hidden = !u;
+  $("#li-ratings").value = settings().liRatings || "1800,2000,2200,2500";
+  $("#li-speeds").value = settings().liSpeeds || "blitz,rapid,classical";
 }
 
 // --- ocena silnika w edytorze
@@ -1072,6 +1122,7 @@ function renderStats() {
 
 function renderSettings() {
   const s = settings();
+  renderLichess();
   $("#set-version").textContent = `Wersja aplikacji: ${VERSION}`;
   $("#set-new").value = s.newPerSession || 10;
   $("#set-sound").checked = s.sound !== false;
@@ -1204,6 +1255,38 @@ async function main() {
     store.save();
     renderBrowse();
   });
+  $("#b-db-toggle").addEventListener("click", () => {
+    settings().dbOn = !settings().dbOn;
+    store.save();
+    renderBrowse();
+  });
+  $$("input[name=dbsrc]").forEach((r) => r.addEventListener("change", () => {
+    settings().dbSrc = r.value;
+    store.save();
+    renderBrowse();
+  }));
+  $("#b-db-body").addEventListener("click", (e) => {
+    const tr = e.target.closest("[data-san]");
+    if (!tr || !browse.chess) return;
+    const m = browse.chess.moves({ verbose: true }).find((x) => x.san === tr.dataset.san);
+    if (m) browsePlay(m);
+  });
+  $("#li-login").addEventListener("click", () => lichess.login());
+  $("#li-logout").addEventListener("click", async () => { await lichess.logout(); renderLichess(); });
+  $("#li-token-save").addEventListener("click", async () => {
+    const t = $("#li-token").value.trim();
+    if (!t) return;
+    try {
+      const u = await lichess.setToken(t);
+      $("#li-token").value = "";
+      toast(`Zalogowano jako ${u}`);
+    } catch (err) {
+      alert(err.message);
+    }
+    renderLichess();
+  });
+  $("#li-ratings").addEventListener("change", (e) => { settings().liRatings = e.target.value; store.save(); });
+  $("#li-speeds").addEventListener("change", (e) => { settings().liSpeeds = e.target.value; store.save(); });
   $("#b-eval").addEventListener("click", (e) => {
     const b = e.target.closest("[data-ev]");
     if (!b || !browse.chess) return;
@@ -1274,6 +1357,14 @@ async function main() {
   if (Pegasus.supported()) peg.reconnectKnown().catch(() => {});
 
   go("home");
+  lichess.handleRedirect().then((done) => {
+    if (!done) return;
+    toast(`Zalogowano do Lichess jako ${lichess.user()}`);
+    go("settings");
+  }).catch((err) => {
+    alert("Logowanie do Lichess nie powiodło się: " + err.message);
+    go("settings");
+  });
   window.__app = { peg, trainer }; // do diagnostyki z konsoli
 
   if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
