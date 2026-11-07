@@ -9,7 +9,7 @@ import {
   addMove, deleteMove, deletePreview, emptyRep, validateBackup,
 } from "./repertoire.js";
 
-const VERSION = "2026-11-07 k";
+const VERSION = "2026-11-07 l";
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -1152,12 +1152,22 @@ function renderPeg() {
   const el = $("#peg-btn");
   const st = peg.state;
   el.dataset.state = st;
-  const batt = peg.battery ? ` · ${peg.battery.pct}%${peg.battery.charging ? "⚡" : ""}` : "";
-  el.textContent =
-    st === "on" ? `● ${peg.device?.name || "Pegasus"}${batt}`
-    : st === "connecting" ? "● Łączę…"
-    : st === "lost" ? "● Utracono — łączę ponownie…"
-    : "Połącz planszę";
+  const pct = peg.battery?.pct;
+  const hasBattery = Number.isFinite(pct);
+  const name = peg.device?.name || "DGT Pegasus";
+  const label = st === "on"
+    ? (hasBattery ? `${Math.max(0, Math.min(100, Math.round(pct)))}%${peg.battery.charging ? "⚡" : ""}` : "…")
+    : st === "connecting" ? "…"
+    : st === "lost" ? "!"
+    : "+";
+  const description = st === "on"
+    ? `${name}: ${hasBattery ? `bateria ${label}` : "odczytuję stan baterii"}. Rozłącz planszę`
+    : st === "connecting" ? "Łączę z planszą DGT Pegasus"
+    : st === "lost" ? "Utracono połączenie z planszą. Łączę ponownie"
+    : "Połącz planszę DGT Pegasus";
+  $("#peg-label").textContent = label;
+  el.setAttribute("aria-label", description);
+  el.title = description;
   $("#peg-test-leds").disabled = st !== "on";
 }
 

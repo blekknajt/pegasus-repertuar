@@ -73,21 +73,31 @@ h3 { font-size: 1.05rem; }
 /* --- nagłówek */
 header {
   position: sticky; top: 0; z-index: 10;
-  display: flex; align-items: center; gap: 12px;
-  padding: 8px 16px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px;
   padding-top: max(8px, env(safe-area-inset-top));
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
-.brand { display: flex; align-items: center; gap: 8px; font-weight: 700; }
-.brand img { width: 26px; height: 26px; }
-nav { display: flex; gap: 4px; flex: 1; overflow-x: auto; }
-nav button { background: none; border: 0; color: var(--muted); }
+.brand { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: .9rem; font-variant-caps: small-caps; white-space: nowrap; }
+.brand img { width: 23px; height: 23px; }
+nav { display: flex; gap: 2px; flex: 1; min-width: 0; overflow-x: auto; }
+header nav button { background: none; border: 0; color: var(--muted); padding: 6px 8px; font-size: .8rem; font-variant-caps: small-caps; letter-spacing: .02em; white-space: nowrap; }
 nav button.active { color: var(--text); background: var(--surface-2); }
 
-#peg-btn { white-space: nowrap; }
+#peg-btn { flex: none; min-width: 44px; padding: 6px 9px; white-space: nowrap; font-size: .85rem; font-weight: 700; }
+#peg-btn .peg-board-icon { width: 20px; height: 20px; flex: none; border: 2px solid currentColor; border-radius: 2px; background: conic-gradient(currentColor 25%, transparent 0 50%, currentColor 0 75%, transparent 0) 0 0 / 8px 8px; }
+#peg-btn[data-state="on"] .peg-board-icon { display: none; }
+#peg-label { line-height: 1; }
 #peg-btn[data-state="on"] { color: var(--primary); border-color: var(--primary); }
 #peg-btn[data-state="connecting"], #peg-btn[data-state="lost"] { color: var(--warn); border-color: var(--warn); }
+@media (max-width: 650px) { .brand-name { display: none; } }
+@media (max-width: 400px) {
+  header { gap: 4px; padding-inline: 6px; }
+  .brand { display: none; }
+  nav { gap: 0; }
+  header nav button { padding-inline: 5px; font-size: .76rem; letter-spacing: 0; }
+}
 
 main { max-width: 1400px; margin: 0 auto; padding: 16px; }
 .page-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
