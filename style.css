@@ -204,6 +204,12 @@ fieldset.seg label:has(input:checked) { border-color: var(--accent); background:
 .status[data-tone="new"] { color: var(--accent); }
 .sub { color: var(--muted); margin-top: 4px; }
 .status-box #t-back-rep { margin-top: 12px; }
+/* po zakończeniu treningu przycisk zawsze widoczny, nawet gdy panel wychodzi poza ekran */
+#t-back-rep:not([hidden]) {
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 40;
+  bottom: max(16px, env(safe-area-inset-bottom)); min-width: 260px; min-height: 56px; font-size: 1.15rem;
+  box-shadow: 0 4px 18px rgba(0,0,0,.35);
+}
 .comment { background: var(--surface-2); border-radius: 10px; padding: 10px 12px; font-style: italic; }
 .comment:empty { display: none; }
 .line { font-family: ui-monospace, monospace; font-size: 0.95rem; color: var(--muted); }
