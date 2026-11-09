@@ -9,7 +9,7 @@ import {
   addMove, deleteMove, deletePreview, emptyRep, validateBackup,
 } from "./repertoire.js";
 
-const VERSION = "2026-11-09 a";
+const VERSION = "2026-11-10 a";
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -1698,9 +1698,27 @@ async function main() {
 
   // Na tablecie aplikacja bywa usuwana z pamięci bez ostrzeżenia. Zapisz bieżące zmiany,
   // kiedy użytkownik ją chowa, nie czekając na krótki timer zapisu.
+  // Połączona plansza nigdy nie zasypia (licznik auto-wyłączenia biegnie tylko bez połączenia),
+  // więc schowana aplikacja zwalnia planszę — a po powrocie łączy się z nią z powrotem.
+  let hideTimer = null;
+  let autoReleased = false;
+  const releaseBoard = () => {
+    if (document.visibilityState !== "hidden" || trainer.running || peg.state === "off") return;
+    autoReleased = true;
+    peg.disconnect();
+  };
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") store.saveNow().catch(console.error);
+    clearTimeout(hideTimer);
+    if (document.visibilityState === "hidden") {
+      store.saveNow().catch(console.error);
+      hideTimer = setTimeout(releaseBoard, 90 * 1000);
+    } else if (autoReleased && peg.state === "off") {
+      autoReleased = false;
+      peg.reconnectKnown().catch(() => {});
+    }
   });
+  // Chrome zamraża schowane karty — wtedy zwolnij planszę od razu, bo timer już nie zdąży.
+  document.addEventListener("freeze", releaseBoard);
 }
 
 main();
