@@ -25,7 +25,7 @@ function idb() {
   return dbp;
 }
 
-async function kvGet(key) {
+export async function kvGet(key) {
   const db = await idb();
   return new Promise((res, rej) => {
     const r = db.transaction("kv").objectStore("kv").get(key);
@@ -34,7 +34,7 @@ async function kvGet(key) {
   });
 }
 
-async function kvSet(key, val) {
+export async function kvSet(key, val) {
   const db = await idb();
   return new Promise((res, rej) => {
     const tx = db.transaction("kv", "readwrite");

@@ -1,8 +1,11 @@
 // Ocena pozycji: najpierw chmura Lichess (Stockfish, duża głębokość, tylko popularne pozycje),
 // a gdy pozycji tam nie ma albo brak sieci — lokalny Stockfish 17.1 lite (WASM, GPLv3) w Web Workerze.
+// Gotowe oceny są zapamiętywane na urządzeniu (IndexedDB) — działają po przeładowaniu i bez sieci.
+import { persistentCache } from "./cache.js";
 
 const SF_URL = "lib/stockfish/stockfish-17.1-lite-single-03e3232.js";
 const LOCAL_DEPTH = 18;
+const LOCAL_SRC = "Stockfish w tablecie";
 
 /** Wynik: {source, depth, lines: [{cp|mate, pv: [uci…]}]}; cp/mate z perspektywy białych. */
 export class Engine {
@@ -10,7 +13,7 @@ export class Engine {
     this.worker = null;
     this.ready = null;
     this.job = 0;
-    this.cache = new Map();
+    this.cache = persistentCache("eval", 500);
   }
 
   /** Ocena `fen`; onUpdate wołane wielokrotnie (lokalny silnik pogłębia wynik). */
@@ -18,7 +21,17 @@ export class Engine {
     const job = ++this.job;
     this.stopLocal();
     const key = fen.split(" ").slice(0, 4).join(" ");
-    if (this.cache.has(key)) return onUpdate(this.cache.get(key));
+    const hit = await this.cache.get(key).catch(() => undefined);
+    if (job !== this.job) return;
+    if (hit) {
+      onUpdate(hit);
+      if (hit.source !== LOCAL_SRC) return;
+      // w keszu tylko płytka ocena lokalna — w tle spróbuj głębszej z chmury
+      const better = await this.cloud(fen, multiPv).catch(() => null);
+      if (job !== this.job || !better) return;
+      this.cache.set(key, better);
+      return onUpdate(better);
+    }
 
     const cloud = await this.cloud(fen, multiPv).catch(() => null);
     if (job !== this.job) return;
@@ -26,7 +39,7 @@ export class Engine {
       this.cache.set(key, cloud);
       return onUpdate(cloud);
     }
-    onUpdate({ source: "Stockfish w tablecie", depth: 0, lines: [], pending: true });
+    onUpdate({ source: LOCAL_SRC, depth: 0, lines: [], pending: true });
     await this.local(fen, multiPv, job, (res) => {
       if (job !== this.job) return;
       if (res.done) this.cache.set(key, res);
@@ -99,12 +112,12 @@ export class Engine {
           };
           if (k === 0 && d > depth) {
             depth = d;
-            if (d >= 8) onUpdate({ source: "Stockfish w tablecie", depth, lines: lines.filter(Boolean).map((l) => ({ ...l })) });
+            if (d >= 8) onUpdate({ source: LOCAL_SRC, depth, lines: lines.filter(Boolean).map((l) => ({ ...l })) });
           }
         } else if (s.startsWith("bestmove")) {
           this.worker.removeEventListener("message", h);
           this._running = false;
-          onUpdate({ source: "Stockfish w tablecie", depth, done: true, lines: lines.filter(Boolean) });
+          onUpdate({ source: LOCAL_SRC, depth, done: true, lines: lines.filter(Boolean) });
           resolve();
         }
       };

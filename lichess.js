@@ -1,5 +1,7 @@
 // Lichess: logowanie OAuth (PKCE, bez rejestracji aplikacji) i baza debiutów (opening explorer).
 // Token trzymamy w localStorage tej strony — tylko na tym urządzeniu.
+// Odpowiedzi bazy są zapamiętywane na urządzeniu (IndexedDB) — działają po przeładowaniu i bez sieci.
+import { persistentCache } from "./cache.js";
 
 const CLIENT_ID = "pegasus-repertuar";
 const TOKEN_KEY = "lichessToken";
@@ -82,7 +84,7 @@ export const lichess = {
   },
 };
 
-const cache = new Map();
+const cache = persistentCache("db", 300);
 
 /**
  * Statystyki ruchów z pozycji. db: "lichess" | "masters".
@@ -98,7 +100,8 @@ export async function explore(fen, db, { ratings, speeds } = {}) {
     q.set("ratings", ratings || "1800,2000,2200,2500");
   }
   const url = `https://explorer.lichess.ovh/${db}?${q}`;
-  if (cache.has(url)) return cache.get(url);
+  const hit = await cache.get(url).catch(() => undefined);
+  if (hit) return hit;
   const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   if (r.status === 401) throw Object.assign(new Error("Lichess odrzucił logowanie — zaloguj się ponownie w Ustawieniach."), { code: "auth" });
   if (r.status === 429) throw new Error("Za dużo zapytań do bazy Lichess — odczekaj minutę.");

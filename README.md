@@ -7,7 +7,8 @@ Trening repertuaru debiutowego z powtórkami (spaced repetition) na fizycznej sz
 - ruchy przeciwnika podświetlane diodami, Twoje ruchy rozpoznawane z czujników,
 - tryb bez planszy (ruchy na ekranie), statystyki, praca offline.
 
-Dane zostają w przeglądarce urządzenia (IndexedDB).
+Dane zostają w przeglądarce urządzenia (IndexedDB). Oceny silnika i odpowiedzi bazy partii
+są tam również zapamiętywane — raz odwiedzona pozycja działa potem bez sieci.
 
 Protokół planszy: nieoficjalny opis https://dgtcentaurmods.github.io/pegasus-protocol.
 Biblioteki: [chess.js](https://github.com/jhlywa/chess.js) (BSD-2), figury „cburnett” z Lichess (CC BY-SA 3.0, Colin M.L. Burnett),
