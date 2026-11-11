@@ -203,7 +203,8 @@ fieldset.seg label:has(input:checked) { border-color: var(--accent); background:
 .status[data-tone="warn"] { color: var(--warn); }
 .status[data-tone="new"] { color: var(--accent); }
 .sub { color: var(--muted); margin-top: 4px; }
-.status-box #t-back-rep { margin-top: 12px; }
+.status-box #t-back-rep, .status-box #t-next { margin-top: 12px; }
+.status-box #t-next { min-width: 160px; min-height: 48px; font-size: 1.1rem; }
 /* po zakończeniu treningu przycisk zawsze widoczny, nawet gdy panel wychodzi poza ekran */
 #t-back-rep:not([hidden]) {
   position: fixed; left: 50%; transform: translateX(-50%); z-index: 40;

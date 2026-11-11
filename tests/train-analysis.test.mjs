@@ -22,12 +22,18 @@ class FakeBoard {
   setInteractive() {} setDiff() {} setOrientation(o) { this.orientation = o; }
 }
 
-test("próbne ruchy na Pegasusie nie zaliczają powtórki i wymagają przywrócenia pozycji", async () => {
+class FakeElement extends EventTarget {
+  constructor() { super(); this.hidden = false; this.disabled = false; this.textContent = ""; this.dataset = {}; this.classList = { toggle() {} }; }
+  setAttribute() {}
+  click() { this.dispatchEvent(new Event("click")); }
+}
+
+function load() {
   const elements = new Map();
   const document = {
     body: { dataset: { view: "train" } },
     querySelector(s) {
-      if (!elements.has(s)) elements.set(s, { hidden: false, disabled: false, textContent: "", classList: { toggle() {} }, setAttribute() {} });
+      if (!elements.has(s)) elements.set(s, new FakeElement());
       return elements.get(s);
     },
     querySelectorAll: () => [],
@@ -35,13 +41,18 @@ test("próbne ruchy na Pegasusie nie zaliczają powtórki i wymagają przywróce
   const context = vm.createContext({
     Chess, Pegasus: FakePeg, BoardView: FakeBoard,
     Engine: class { constructor() { this.job = 0; } stopLocal() {} },
-    store: { data: { settings: {} } }, posKey: () => "none", lineText: (_fen, moves) => moves.join(" "),
+    store: { data: { settings: {} }, save() {}, logReview() {} }, posKey: () => "none", lineText: (_fen, moves) => moves.join(" "),
     document, setTimeout, clearTimeout, console, Event, EventTarget, navigator: {}, window: {},
   });
   const file = readFileSync(new URL("../app.js", import.meta.url), "utf8");
   const source = file.slice(file.indexOf("const VERSION"), file.lastIndexOf("\nmain();"));
-  vm.runInContext(source + `\nglobalThis.h = { peg, Trainer, trainAnalysis, occOf, startTrainExplore, returnFromTrainExplore, onTrainExploreOcc, setup() { trainBoard = new BoardView(); analysisBoard = new BoardView(); trainer = new Trainer(trainBoard); return trainer; } };`, context);
-  const h = context.h;
+  vm.runInContext(source + `\nglobalThis.h = { peg, Trainer, trainAnalysis, occOf, startTrainExplore, returnFromTrainExplore, onTrainExploreOcc, settings, setup() { trainBoard = new BoardView(); analysisBoard = new BoardView(); trainer = new Trainer(trainBoard); return trainer; } };`, context);
+  context.h.$ = (s) => document.querySelector(s);
+  return context.h;
+}
+
+test("próbne ruchy na Pegasusie nie zaliczają powtórki i wymagają przywrócenia pozycji", async () => {
+  const h = load();
   const trainer = h.setup();
   trainer.running = true;
   trainer.usingBoard = true;
@@ -82,4 +93,48 @@ test("próbne ruchy na Pegasusie nie zaliczają powtórki i wymagają przywróce
   h.returnFromTrainExplore();
   await timer;
   assert.equal(timerFinished, true);
+});
+
+test("po linii z błędem trening czeka na „Dalej”, a analiza zna ruchy tej linii", async () => {
+  const h = load();
+  const trainer = h.setup();
+  const start = new Chess();
+  const line = [{ uci: "e2e4", san: "e4" }, { uci: "e7e5", san: "e5" }];
+  const nodes = {};
+  const c = new Chess();
+  for (const s of line) {
+    s.key = c.fen(); s.fen = c.fen(); s.user = c.turn() === "w"; s.target = s.user;
+    s.edge = { srs: null };
+    nodes[s.key] = { fen: c.fen(), moves: { [s.uci]: s.edge } };
+    c.move(s.san);
+  }
+  nodes[c.fen()] = { fen: c.fen(), moves: {} };
+  trainer.rep = { color: "w", nodes };
+  trainer.running = true;
+  trainer.usingBoard = false;
+  trainer.stats = { ok: 0, fail: 0, learned: 0 };
+  trainer.retry = new Set();
+  trainer.played = [];
+  // ruch użytkownika: od razu podpowiedź (= błąd), potem poprawny ruch
+  trainer.waitUserMove = async (uci) => { trainer.hintFor?.(); return trainer.verbose(uci); };
+  trainer.fail = () => { trainer.stats.fail++; };
+  trainer.renderStats = () => {};
+  trainer.opponentMove = async (step) => { trainer.apply(trainer.verbose(step.uci)); };
+  h.settings().pauseAfterLine = "error";
+
+  let done = false;
+  const playing = trainer.playLine({ root: start.fen(), steps: line }, "quiz").then(() => { done = true; });
+  await new Promise((r) => setTimeout(r, 1200));
+  assert.equal(done, false, "pauza po błędzie");
+  assert.equal(h.$("#t-next").hidden, false);
+
+  h.startTrainExplore();
+  assert.deepEqual(h.trainAnalysis.explore.chess.history(), ["e4", "e5"], "cofanie w analizie sięga do miejsca błędu");
+  assert.equal(h.$("#t-next").disabled, true);
+  h.returnFromTrainExplore();
+  assert.equal(h.$("#t-next").disabled, false);
+
+  h.$("#t-next").click();
+  await playing;
+  assert.equal(h.$("#t-next").hidden, true);
 });

@@ -9,7 +9,7 @@ import {
   addMove, deleteMove, deletePreview, emptyRep, validateBackup,
 } from "./repertoire.js";
 
-const VERSION = "2026-11-10 a";
+const VERSION = "2026-11-11 a";
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -506,6 +506,7 @@ class Trainer {
       this.synced = false;
     }
     const steps = line.steps;
+    const failsBefore = this.stats.fail;
     let k = 0;
     while (k < this.played.length && k < steps.length && this.played[k] === steps[k].uci) k++;
     k = Math.min(k, steps.findIndex((s) => s.target)); // wróć co najmniej przed pierwszy cel
@@ -533,7 +534,28 @@ class Trainer {
       this.renderLine(steps, i + 1, rootFen);
     }
     store.save();
-    await this.sleep(phase === "show" ? 400 : 700);
+    const failed = this.stats.fail > failsBefore;
+    const pause = settings().pauseAfterLine || "error";
+    if (trainAnalysis.open || (phase === "quiz" && (pause === "always" || (pause === "error" && failed)))) await this.pauseAfterLine(failed);
+    else await this.sleep(phase === "show" ? 400 : 700);
+  }
+
+  /** Zatrzymanie na końcu linii — czas na analizę; dalej po przycisku „Dalej”. */
+  pauseAfterLine(failed) {
+    this.hintFor = null;
+    $("#t-hint").hidden = true;
+    this.status(
+      failed ? "Linia z błędem" : "Koniec linii",
+      (failed ? "„Analiza” → „Wypróbuj ruchy”, a „← Cofnij ruch” wraca do miejsca błędu. " : "Możesz przeanalizować pozycję. ") + "Potem naciśnij „Dalej”.",
+      failed ? "warn" : ""
+    );
+    return this._wait((done, onCleanup) => {
+      const btn = $("#t-next");
+      const next = () => done();
+      btn.hidden = false;
+      btn.addEventListener("click", next);
+      onCleanup(() => { btn.removeEventListener("click", next); btn.hidden = true; });
+    });
   }
 
   async run(rep, mode) {
@@ -907,8 +929,21 @@ function renderTrainAnalysis(force = false) {
 function startTrainExplore() {
   if (!trainer.pos || trainAnalysis.explore) return;
   const physical = trainer.running ? trainer.usingBoard : peg.state === "on" && !!peg.occ;
-  const chess = new Chess(trainer.pos.fen());
-  trainAnalysis.explore = { chess, root: chess.fen(), physical, synced: false, restoring: false, touched: new Set(), timer: null, closeOnReturn: false };
+  const root = trainer.pos.fen();
+  // z historią bieżącej linii — „Cofnij ruch” może wrócić przed pozycję treningową (np. do błędu)
+  const fresh = () => {
+    const start = trainer.root && trainer.rep?.nodes[trainer.root]?.fen;
+    if (start && trainer.played?.length) {
+      const c = new Chess(start);
+      try {
+        for (const u of trainer.played) c.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] });
+        if (c.fen() === root) return { chess: c, start };
+      } catch {}
+    }
+    return { chess: new Chess(root), start: root };
+  };
+  const { chess, start } = fresh();
+  trainAnalysis.explore = { chess, root, start, fresh: () => fresh().chess, physical, synced: false, restoring: false, touched: new Set(), timer: null, closeOnReturn: false };
   for (const waiter of trainer.waiters) waiter.pause.forEach((f) => f());
   $("#t-board").hidden = true;
   $("#t-analysis-board").hidden = false;
@@ -919,6 +954,7 @@ function startTrainExplore() {
   $("#t-explore-info").hidden = false;
   $("#t-hint").disabled = true;
   $("#t-from-start").disabled = true;
+  $("#t-next").disabled = true;
   analysisBoard.setOrientation(trainBoard.orientation);
   if (physical && peg.state === "on") peg.leds([]);
   drawTrainExplore();
@@ -946,9 +982,9 @@ function drawTrainExplore() {
     playTrainExplore(move);
   };
   $("#t-explore-back").disabled = e.restoring || !history.length;
-  $("#t-explore-reset").disabled = e.restoring || !history.length;
+  $("#t-explore-reset").disabled = e.restoring || e.chess.fen() === e.root;
   $("#t-explore-return").disabled = e.restoring;
-  const line = history.length ? lineText(e.root, history.map((m) => m.san)) : "pozycja treningowa";
+  const line = history.length ? lineText(e.start, history.map((m) => m.san)) : "pozycja treningowa";
   $("#t-explore-info").textContent = e.restoring
     ? "Ustaw na Pegasusie pozycję pokazaną na ekranie, aby wrócić do treningu."
     : `Próbna linia: ${line}. Trening jest wstrzymany.` +
@@ -1028,6 +1064,7 @@ function discardTrainExplore() {
   $("#t-explore-info").hidden = true;
   $("#t-hint").disabled = false;
   $("#t-from-start").disabled = false;
+  $("#t-next").disabled = false;
   if (e.physical && peg.state === "on") peg.leds([]);
 }
 
@@ -1385,6 +1422,7 @@ function renderSettings() {
   renderLichess();
   $("#set-version").textContent = `Wersja aplikacji: ${VERSION}`;
   $("#set-new").value = s.newPerSession || 10;
+  $("#set-pause").value = s.pauseAfterLine || "error";
   $("#set-sound").checked = s.sound !== false;
   $("#set-hintleds").checked = s.hintLeds !== false;
   $("#set-rotated").checked = !!s.rotated;
@@ -1518,7 +1556,7 @@ async function main() {
     const e = trainAnalysis.explore;
     if (!e || e.restoring) return;
     clearTimeout(e.timer);
-    if (reset) e.chess = new Chess(e.root);
+    if (reset) e.chess = e.fresh();
     else e.chess.undo();
     e.touched.clear();
     e.synced = !e.physical || (peg.state === "on" && !!peg.occupied() && setEq(peg.occupied(), occOf(e.chess)));
@@ -1638,6 +1676,7 @@ async function main() {
   $("#s-rep").addEventListener("change", renderStats);
 
   $("#set-new").addEventListener("change", (e) => { settings().newPerSession = Math.max(1, Math.min(50, Number(e.target.value) || 10)); store.save(); });
+  $("#set-pause").addEventListener("change", (e) => { settings().pauseAfterLine = e.target.value; store.save(); });
   $("#set-sound").addEventListener("change", (e) => { settings().sound = e.target.checked; store.save(); });
   $("#set-hintleds").addEventListener("change", (e) => { settings().hintLeds = e.target.checked; store.save(); });
   $("#set-rotated").addEventListener("change", (e) => {
