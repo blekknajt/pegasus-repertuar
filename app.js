@@ -3,14 +3,14 @@ import { Pegasus } from "./pegasus.js";
 import { BoardView } from "./board.js";
 import { Engine, scoreText } from "./engine.js";
 import { lichess, explore } from "./lichess.js";
-import { t, setLang, getLang, defaultLang, translateDom, samplePgn } from "./i18n.js";
+import { t, setLang, getLang, getLocale, langInfo, LANGS, defaultLang, promotionPiece, translateDom, samplePgn } from "./i18n.js";
 import {
   store, importPgn, inferColor, fetchLichessStudy, exportPgn, buildLine, grade, markLearned, counts,
   forecast, weakest, lineText, isUserNode, posKey, START_FEN, DAY, focusKey, subtree,
   addMove, deleteMove, deletePreview, emptyRep, validateBackup,
 } from "./repertoire.js";
 
-const VERSION = "2026-11-11 d";
+const VERSION = "2026-11-11 e";
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -831,10 +831,10 @@ async function onHomeClick(e) {
   }
 }
 
-/** Pyta o figurę promocji; przyjmuje litery polskie (h w g s) i angielskie (q r b n). */
+/** Pyta o figurę promocji; przyjmuje litery figur w każdym obsługiwanym języku. */
 function askPromotion() {
-  const p = (prompt(t("Promocja na: h (hetman), w (wieża), g (goniec), s (skoczek)"), getLang() === "en" ? "q" : "h") || "q").toLowerCase()[0];
-  return { h: "q", w: "r", g: "b", s: "n", q: "q", r: "r", b: "b", n: "n" }[p] || "q";
+  const def = langInfo().promo[0];
+  return promotionPiece((prompt(t("Promocja na: h (hetman), w (wieża), g (goniec), s (skoczek)"), def) || def)[0]);
 }
 
 function download(name, text, type = "text/plain") {
@@ -1444,7 +1444,7 @@ function renderStats() {
     ["Dni z rzędu", streak],
   ].map(([k, v]) => `<div class="tile"><div class="tile-v">${v}</div><div class="tile-k">${t(k)}</div></div>`).join("");
 
-  const dn = (d) => d.toLocaleDateString(getLang() === "en" ? "en-GB" : "pl-PL", { weekday: "short" });
+  const dn = (d) => d.toLocaleDateString(getLocale(), { weekday: "short" });
   const maxF = Math.max(1, ...fc);
   $("#s-forecast").innerHTML = fc
     .map((v, i) => {
@@ -1552,6 +1552,49 @@ async function onPegClick() {
     if (peg.state === "connecting") peg.disconnect();
     renderPeg();
   }
+}
+
+// ---------------------------------------------------------------- język
+
+/** Flaga bieżącego języka w nagłówku; po dotknięciu lista języków. */
+function setupLangMenu() {
+  const btn = $("#lang-btn");
+  const menu = $("#lang-menu");
+  btn.textContent = langInfo().flag;
+  btn.title = `${langInfo().name} — ${LANGS.map((l) => l.name).join(" / ")}`;
+  btn.setAttribute("aria-label", btn.title);
+  menu.innerHTML = LANGS.map((l) =>
+    `<button type="button" role="menuitemradio" aria-checked="${l.code === getLang()}" data-lang="${l.code}"><span class="flag">${l.flag}</span>${l.name}</button>`).join("");
+  const close = () => {
+    menu.hidden = true;
+    btn.setAttribute("aria-expanded", "false");
+    document.removeEventListener("pointerdown", outside, true);
+    document.removeEventListener("keydown", onKey);
+  };
+  const outside = (e) => { if (!menu.contains(e.target) && e.target !== btn) close(); };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  btn.addEventListener("click", () => {
+    if (!menu.hidden) return close();
+    // menu poza paskiem nawigacji (ten przewija się w poziomie i ucina wystające elementy)
+    const r = btn.getBoundingClientRect();
+    menu.style.top = `${r.bottom + 4}px`;
+    menu.style.left = `${Math.max(8, Math.min(r.left, innerWidth - 190))}px`;
+    menu.hidden = false;
+    btn.setAttribute("aria-expanded", "true");
+    document.addEventListener("pointerdown", outside, true);
+    document.addEventListener("keydown", onKey);
+  });
+  menu.addEventListener("click", async (e) => {
+    const code = e.target.closest("[data-lang]")?.dataset.lang;
+    if (!code) return;
+    close();
+    if (code === getLang()) return;
+    if (trainer.running && !confirm(t("Przerwać trening?"))) return;
+    if (trainer.running) trainer.abort();
+    settings().lang = code;
+    await store.saveNow();
+    location.reload();
+  });
 }
 
 // ---------------------------------------------------------------- start
@@ -1743,19 +1786,7 @@ async function main() {
 
   $("#set-new").addEventListener("change", (e) => { settings().newPerSession = Math.max(1, Math.min(50, Number(e.target.value) || 10)); store.save(); });
   $("#set-pause").addEventListener("change", (e) => { settings().pauseAfterLine = e.target.value; store.save(); });
-  // flaga pokazuje język, na który się przełączy
-  const other = getLang() === "en" ? "pl" : "en";
-  const langBtn = $("#lang-btn");
-  langBtn.textContent = other === "en" ? "🇬🇧" : "🇵🇱";
-  langBtn.title = other === "en" ? "English" : "Polski";
-  langBtn.setAttribute("aria-label", other === "en" ? "Switch to English" : "Przełącz na polski");
-  langBtn.addEventListener("click", async () => {
-    if (trainer.running && !confirm(t("Przerwać trening?"))) return;
-    if (trainer.running) trainer.abort();
-    settings().lang = other;
-    await store.saveNow();
-    location.reload();
-  });
+  setupLangMenu();
   $("#set-sound").addEventListener("change", (e) => { settings().sound = e.target.checked; store.save(); });
   $("#set-hintleds").addEventListener("change", (e) => { settings().hintLeds = e.target.checked; store.save(); });
   $("#set-rotated").addEventListener("change", (e) => {

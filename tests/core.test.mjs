@@ -159,3 +159,21 @@ test("tłumaczenie: angielski ze zmiennymi, brak wpisu zostaje po polsku", async
   }
   assert.equal(t("Zagraj: {san}", { san: "Nf3" }), "Zagraj: Nf3");
 });
+
+test("tłumaczenia: każdy język ma te same klucze i znaczniki {…} co angielski", async () => {
+  const { LANGS, promotionPiece } = await import("../i18n.js");
+  const en = LANGS.find((l) => l.code === "en").dict;
+  const marks = (s) => (s.match(/\{\w+\}/g) || []).sort().join(",");
+  for (const { code, dict } of LANGS) {
+    if (!dict) continue;
+    assert.deepEqual(Object.keys(dict).sort(), Object.keys(en).sort(), code);
+    for (const [k, v] of Object.entries(dict)) {
+      assert.equal(marks(v), marks(k), `${code}: ${k}`);
+      assert.equal(/^\s/.test(v), /^\s/.test(k), `${code}: spacja na początku: ${k}`);
+      assert.equal(/\s$/.test(v), /\s$/.test(k), `${code}: spacja na końcu: ${k}`);
+    }
+  }
+  // litery promocji z każdego języka
+  for (const [c, p] of [["h", "q"], ["w", "r"], ["S", "n"], ["d", "q"], ["t", "r"], ["f", "b"], ["c", "n"], ["l", "b"], ["ф", "q"], ["л", "r"], ["с", "b"], ["к", "n"], ["x", "q"]])
+    assert.equal(promotionPiece(c), p, c);
+});

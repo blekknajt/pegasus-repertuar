@@ -18,7 +18,7 @@
       <button data-view="home" class="active">Repertuary</button>
       <button data-view="stats">Statystyki</button>
       <button data-view="settings">Ustawienia</button>
-      <button id="lang-btn" class="lang-flag" type="button" data-no-i18n></button>
+      <button id="lang-btn" class="lang-flag" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="lang-menu" data-no-i18n></button>
     </nav>
     <button id="peg-btn" data-state="off" aria-label="Połącz planszę DGT Pegasus" title="Połącz planszę DGT Pegasus"><span class="peg-board-icon" aria-hidden="true"></span><span id="peg-label" aria-hidden="true">+</span></button>
   </header>
@@ -265,6 +265,7 @@
       <button id="peg-close" class="ghost">Zamknij</button>
     </div>
   </dialog>
+  <div id="lang-menu" class="lang-menu" role="menu" data-no-i18n hidden></div>
   <div id="toast" class="toast" role="status" hidden></div>
   <script type="module" src="app.js"></script>
 </body>

@@ -1,24 +1,56 @@
 // Tłumaczenia interfejsu. Kluczem jest tekst polski; brak wpisu → zostaje polski.
 // Teksty ze zmiennymi mają znaczniki {nazwa}: t("Zagraj: {san}", { san }).
 // Stałe napisy w HTML i w szablonach tłumaczy obserwator DOM (translateDom).
+// Słowniki są w lang/*.js; każdy ma te same klucze co lang/en.js (pilnuje tego test).
+import en from "./lang/en.js";
+import fr from "./lang/fr.js";
+import de from "./lang/de.js";
+import ru from "./lang/ru.js";
 
-let lang = "pl";
+/** Dostępne języki: kod, flaga, nazwa własna, ustawienia regionalne dat, litery figur do promocji (h/q, w/r, g/b, s/n). */
+export const LANGS = [
+  { code: "pl", flag: "🇵🇱", name: "Polski", locale: "pl-PL", dict: null, promo: "hwgs" },
+  { code: "en", flag: "🇬🇧", name: "English", locale: "en-GB", dict: en, promo: "qrbn" },
+  { code: "fr", flag: "🇫🇷", name: "Français", locale: "fr-FR", dict: fr, promo: "dtfc" },
+  { code: "de", flag: "🇩🇪", name: "Deutsch", locale: "de-DE", dict: de, promo: "dtls" },
+  { code: "ru", flag: "🇷🇺", name: "Русский", locale: "ru-RU", dict: ru, promo: "флск" },
+];
 
-export const getLang = () => lang;
+let cur = LANGS[0];
+let DICT = {};
 
-export function setLang(l) {
-  lang = l === "en" ? "en" : "pl";
-  if (typeof document !== "undefined") document.documentElement.lang = lang;
+export const getLang = () => cur.code;
+export const getLocale = () => cur.locale;
+export const langInfo = () => cur;
+
+export function setLang(code) {
+  cur = LANGS.find((l) => l.code === code) || LANGS[0];
+  DICT = cur.dict || {};
+  if (typeof document !== "undefined") document.documentElement.lang = cur.code;
 }
 
-/** Język domyślny: polski na polskim urządzeniu, w innych przypadkach angielski. */
+/** Język domyślny: pierwszy obsługiwany z ustawień urządzenia, w innych przypadkach angielski. */
 export function defaultLang() {
   const langs = typeof navigator !== "undefined" ? navigator.languages || [navigator.language || ""] : [];
-  return langs.some((l) => /^pl\b/i.test(l || "")) ? "pl" : "en";
+  for (const l of langs) {
+    const code = (l || "").slice(0, 2).toLowerCase();
+    if (LANGS.some((x) => x.code === code)) return code;
+  }
+  return "en";
+}
+
+/** Litera figury promocji (w dowolnym obsługiwanym języku) → q/r/b/n. */
+export function promotionPiece(letter) {
+  const c = (letter || "").toLowerCase();
+  for (const l of LANGS) {
+    const i = l.promo.indexOf(c);
+    if (c && i >= 0) return "qrbn"[i];
+  }
+  return "q";
 }
 
 export function t(s, vars) {
-  let out = lang === "en" && Object.hasOwn(EN, s) ? EN[s] : s;
+  let out = Object.hasOwn(DICT, s) ? DICT[s] : s;
   if (vars) out = out.replace(/\{(\w+)\}/g, (m, k) => (Object.hasOwn(vars, k) ? String(vars[k]) : m));
   return out;
 }
@@ -32,16 +64,16 @@ const isUserText = (node) => !!node.parentElement?.closest("[data-no-i18n]");
 function translateText(node) {
   if (isUserText(node)) return;
   const key = norm(node.data);
-  if (!key || !Object.hasOwn(EN, key)) return;
+  if (!key || !Object.hasOwn(DICT, key)) return;
   const lead = node.data.match(/^\s*/)[0];
   const trail = node.data.match(/\s*$/)[0];
-  node.data = lead + EN[key] + trail;
+  node.data = lead + DICT[key] + trail;
 }
 
 function translateElement(el) {
   for (const a of ATTRS) {
     const v = el.getAttribute(a);
-    if (v && Object.hasOwn(EN, norm(v))) el.setAttribute(a, EN[norm(v)]);
+    if (v && Object.hasOwn(DICT, norm(v))) el.setAttribute(a, DICT[norm(v)]);
   }
 }
 
@@ -58,7 +90,7 @@ function translateTree(root) {
 
 /** Tłumaczy stronę i wszystko, co zostanie do niej dodane później. */
 export function translateDom(root = document.body) {
-  if (lang !== "en") return;
+  if (!cur.dict) return;
   translateTree(root);
   new MutationObserver((list) => {
     for (const m of list) for (const n of m.addedNodes) translateTree(n);
@@ -72,342 +104,3 @@ export function samplePgn() {
 
 1. e4 e5 {${t("Najczęstsza odpowiedź.")}} (1... c5 2. Nf3 d6 (2... Nc6 3. d4) 3. d4) (1... e6 2. d4 d5 3. Nc3) 2. Nf3 Nc6 (2... d6 3. d4) 3. Bc4 {${t("Partia włoska.")}} Bc5 (3... Nf6 4. d3) 4. c3 Nf6 5. d3 *`;
 }
-
-const EN = {
-  // nawigacja i wspólne
-  "Repertuar": "Repertoire",
-  "Repertuary": "Repertoires",
-  "Statystyki": "Statistics",
-  "Ustawienia": "Settings",
-  "Połącz planszę DGT Pegasus": "Connect the DGT Pegasus board",
-  "← Wróć": "← Back",
-  "Zamknij": "Close",
-  "Zapisz": "Save",
-  "Wszystkie": "All",
-  "białe": "white",
-  "czarne": "black",
-  "teraz": "now",
-  "jutro": "tomorrow",
-  "dziś": "today",
-  "za {n} min": "in {n} min",
-  "za {n} h": "in {n} h",
-  "za {n} dni": "in {n} days",
-
-  // strona główna
-  "Nie masz jeszcze repertuaru": "You don't have a repertoire yet",
-  "Zaimportuj PGN albo studium z Lichess. Możesz też zacząć od małego przykładu.": "Import a PGN or a Lichess study. You can also start with a small example.",
-  "Importuj repertuar": "Import a repertoire",
-  "Dodaj przykład (włoska, białe)": "Add an example (Italian, white)",
-  "Przykład: włoska": "Example: Italian Game",
-  "Najczęstsza odpowiedź.": "The most common reply.",
-  "Partia włoska.": "The Italian Game.",
-  "{n} ruchów": "{n} moves",
-  "poznane {learned}/{total} · nowe {fresh} · następne powtórki: {when}": "learned {learned}/{total} · new {fresh} · next reviews: {when}",
-  "Powtórki": "Reviews",
-  "Nowe ruchy": "New moves",
-  "Nowe": "New",
-  "Edytuj": "Edit",
-  "Więcej": "More",
-  "Dodaj z PGN / Lichess": "Add from PGN / Lichess",
-  "Eksport PGN": "Export PGN",
-  "Zmień nazwę": "Rename",
-  "Wyzeruj postępy": "Reset progress",
-  "Usuń": "Delete",
-  "+ Nowy repertuar / import": "+ New repertoire / import",
-  "Do powtórki dzisiaj: {n}": "Due for review today: {n}",
-  "Wszystkie powtórki zrobione.": "All reviews done.",
-  "Nowa nazwa:": "New name:",
-  "Wyzerować postępy w „{name}”? Ruchy zostaną, ale wszystkie będą znów nowe.": "Reset progress in “{name}”? The moves stay, but all of them will be new again.",
-  "Usunąć repertuar „{name}”? Tego nie da się cofnąć (chyba że masz kopię zapasową).": "Delete the repertoire “{name}”? This can't be undone (unless you have a backup).",
-
-  // fokusy
-  "Usuń fokus": "Remove focus",
-  "Usuń fokus (ruchy i postępy zostają)": "Remove focus (moves and progress stay)",
-  "Tej pozycji nie ma już w repertuarze — usuń fokus albo dodaj ruchy z powrotem.": "This position is no longer in the repertoire — remove the focus or add the moves back.",
-  "Przećwicz całość": "Drill all",
-  "Wszystkie poznane ruchy tego fragmentu, bez względu na termin powtórki": "All learned moves in this part, regardless of when they are due",
-  "🎯 Ćwicz od tej pozycji": "🎯 Train from this position",
-  "Zapisz wycinek repertuaru od tej pozycji i ćwicz tylko go": "Save the part of the repertoire from this position and train only that",
-  "Nazwa fokusu (pojawi się pod repertuarem na stronie głównej):": "Focus name (it will appear under the repertoire on the home page):",
-  "Fokus „{name}” jest pod repertuarem „{rep}”.": "Focus “{name}” is under the repertoire “{rep}”.",
-
-  // import
-  "Nowy repertuar": "New repertoire",
-  "Dodaj do: {name}": "Add to: {name}",
-  "Nazwa": "Name",
-  "np. Sycylijska Najdorfa": "e.g. Sicilian Najdorf",
-  "Grasz kolorem": "You play",
-  "automatycznie (z PGN, inaczej białe)": "automatically (from the PGN, otherwise white)",
-  "białymi": "white",
-  "czarnymi": "black",
-  "Studium Lichess": "Lichess study",
-  "Plik PGN": "PGN file",
-  "Wklej PGN": "Paste PGN",
-  "Link do studium lub rozdziału": "Link to a study or chapter",
-  "Studium musi być publiczne albo „niepubliczne” (dostęp przez link). Wczytywane są wszystkie warianty i komentarze.": "The study must be public or “unlisted” (accessible via link). All variations and comments are imported.",
-  "Plik .pgn": ".pgn file",
-  "PGN (z wariantami w nawiasach)": "PGN (with variations in parentheses)",
-  "Importuj": "Import",
-  "albo zacznij pusty repertuar": "or start an empty repertoire",
-  "Wczytuję…": "Loading…",
-  "Wybierz plik PGN.": "Choose a PGN file.",
-  "Pusty PGN.": "Empty PGN.",
-  "Mój repertuar": "My repertoire",
-  "partię/rozdział": "game/chapter",
-  "partii/rozdziałów": "games/chapters",
-  "<b>Gotowe.</b> Wczytano {games} {what}, nowych ruchów: {added}.": "<b>Done.</b> Loaded {games} {what}, new moves: {added}.",
-  "Twoich ruchów do nauki w repertuarze „{name}” ({color}): {total}.": "Your moves to learn in the repertoire “{name}” ({color}): {total}.",
-  "Kolor rozpoznany po kształcie drzewa wariantów — jeśli się nie zgadza, usuń repertuar i zaimportuj z wybranym kolorem.": "The colour was guessed from the shape of the variation tree — if it's wrong, delete the repertoire and import it again with the colour chosen.",
-  "Pominięte fragmenty ({n})": "Skipped parts ({n})",
-  "Do repertuarów": "To repertoires",
-  "Pusty repertuar — wykonuj ruchy na szachownicy, żeby je dodać": "Empty repertoire — make moves on the board to add them",
-  "partia {n}": "game {n}",
-  "{label}: odmiana {variant} — pomijam": "{label}: variant {variant} — skipped",
-  "{label}: błędna pozycja startowa (FEN)": "{label}: invalid starting position (FEN)",
-  "{label}: nielegalny ruch „{move}” — reszta wariantu pominięta": "{label}: illegal move “{move}” — rest of the variation skipped",
-  "To nie wygląda na link do studium Lichess (lichess.org/study/…)": "This doesn't look like a Lichess study link (lichess.org/study/…)",
-  "Nie znaleziono studium — czy jest publiczne lub „niepubliczne” (nie prywatne)?": "Study not found — is it public or “unlisted” (not private)?",
-  "Lichess odpowiedział błędem {status}": "Lichess responded with error {status}",
-
-  // trening
-  "Od początku": "From the start",
-  "Ustaw pozycję początkową i rozegraj całą linię": "Set up the starting position and play the whole line",
-  "Analiza": "Analysis",
-  "Zamknij analizę": "Close analysis",
-  "Podpowiedź": "Hint",
-  "Dalej →": "Next →",
-  "Wróć do repertuaru": "Back to repertoire",
-  "Obróć": "Flip",
-  "Zakończ": "Finish",
-  "Analiza bieżącej pozycji": "Analysis of the current position",
-  "Baza Lichess": "Lichess database",
-  "Wypróbuj ruchy": "Try moves",
-  "← Cofnij ruch": "← Undo move",
-  "Pozycja treningowa": "Training position",
-  "Wróć do treningu": "Back to training",
-  "Włącz bazę Lichess lub Stockfisha.": "Turn on the Lichess database or Stockfish.",
-  "Mistrzowie": "Masters",
-  "nowe ruchy": "new moves",
-  "powtórki": "reviews",
-  "przegląd całości": "full drill",
-  "Bez planszy — ruchy na ekranie (dotknij bierkę, potem pole).": "No board — moves on the screen (tap a piece, then a square).",
-  "Plansza: {name}": "Board: {name}",
-  "(pozycja wyjściowa)": "(starting position)",
-  "nowe": "new",
-  "do powtórki": "due",
-  "Brakuje bierki na: {sq}. ": "Missing piece on: {sq}. ",
-  "Zbędna bierka na: {sq}.": "Extra piece on: {sq}.",
-  "Przeciwnik ({side}): {san}": "Opponent ({side}): {san}",
-  "Przestaw bierkę przeciwnika: {from}→{to} (świeci na planszy{rot}).": "Move the opponent's piece: {from}→{to} (lit on the board{rot}).",
-  " — kieruj się diodami, nadruki są odwrócone": " — follow the LEDs, the printed labels are reversed",
-  "Nowy ruch: {san}": "New move: {san}",
-  "Zagraj: {san}": "Play: {san}",
-  "Zapamiętaj go — za chwilę sprawdzian.": "Remember it — a quiz is coming.",
-  "Ten ruch znasz — tylko przypomnienie.": "You know this move — just a reminder.",
-  "To nie ten ruch ({san})": "That's not the move ({san})",
-  "Cofnij go i zagraj podświetlony.": "Take it back and play the highlighted one.",
-  "Poprawnie: {san}": "Correct: {san}",
-  "Zagraj ten ruch.": "Play this move.",
-  "Twój ruch ({side})": "Your move ({side})",
-  "W tej pozycji masz {n} ruchy w repertuarze.": "You have {n} moves in your repertoire in this position.",
-  "{san} też jest w repertuarze": "{san} is in your repertoire too",
-  "W tym wariancie zagraj {san}. Cofnij ruch.": "In this line play {san}. Take the move back.",
-  "To ruch ćwiczonego wariantu.": "That's the move of the line being trained.",
-  "Źle: {bad}. Poprawnie: {san}": "Wrong: {bad}. Correct: {san}",
-  "Źle: {bad}": "Wrong: {bad}",
-  "Cofnij ruch (miga na planszy).": "Take the move back (blinking on the board).",
-  "Spróbuj ponownie.": "Try again.",
-  "(zagrałeś {san})": "(you played {san})",
-  "Twój ruch": "Your move",
-  "Spróbuj ponownie lub użyj Podpowiedzi.": "Try again or use the Hint.",
-  "Ustaw pozycję jak na ekranie": "Set up the position shown on the screen",
-  "Świecą pola do zmiany — czerwona ramka: zdejmij, niebieska: postaw. Możesz nacisnąć „Od początku”.": "Squares to change are lit — red frame: remove, blue: place. You can press “From the start”.",
-  "Ustaw pozycję początkową — czerwona ramka: zdejmij, niebieska: postaw.": "Set up the starting position — red frame: remove, blue: place.",
-  "Linia z błędem": "Line with a mistake",
-  "Koniec linii": "End of line",
-  "„Analiza” → „Wypróbuj ruchy”, a „← Cofnij ruch” wraca do miejsca błędu. ": "“Analysis” → “Try moves”, and “← Undo move” goes back to the mistake. ",
-  "Możesz przeanalizować pozycję. ": "You can analyse the position. ",
-  "Potem naciśnij „Dalej”.": "Then press “Next”.",
-  "Plansza rozłączona": "Board disconnected",
-  "Łączę ponownie z planszą…": "Reconnecting to the board…",
-  "Połącz ją ponownie albo zakończ trening.": "Reconnect it or finish the training.",
-  "Trening wznowi się po odczytaniu pozycji.": "Training will resume once the position is read.",
-  "Sprawdzian": "Quiz",
-  "Teraz bez podpowiedzi.": "Now without hints.",
-  "Poprawka błędów": "Fixing mistakes",
-  "Jeszcze raz ruchy, które się nie udały.": "Once more the moves that went wrong.",
-  "Błąd": "Error",
-  "Przegląd zrobiony 🎉": "Drill done 🎉",
-  "Nic do przeglądu": "Nothing to drill",
-  "Błędne ruchy wróciły do powtórek.": "Missed moves went back to reviews.",
-  "Najpierw poznaj nowe ruchy ({n}).": "Learn the new moves first ({n}).",
-  "Poznane nowe ruchy: {n}": "New moves learned: {n}",
-  "Brak nowych ruchów": "No new moves",
-  "Sprawdzian: ✓ {ok}  ✗ {fail}. Nowych zostało: {n}.": "Quiz: ✓ {ok}  ✗ {fail}. New left: {n}.",
-  "Powtórki zrobione 🎉": "Reviews done 🎉",
-  "Nic do powtórki": "Nothing to review",
-  "Następne powtórki: {when}. Możesz poznać nowe ruchy ({n}).": "Next reviews: {when}. You can learn new moves ({n}).",
-  "Przerwać trening?": "Stop the training?",
-
-  // analiza i próbne ruchy
-  "Czekam na pozycję…": "Waiting for the position…",
-  "Promocja na: h (hetman), w (wieża), g (goniec), s (skoczek)": "Promote to: q (queen), r (rook), b (bishop), n (knight)",
-  "pozycja treningowa": "training position",
-  "Ustaw na Pegasusie pozycję pokazaną na ekranie, aby wrócić do treningu.": "Set up the position shown on the screen on the Pegasus to return to training.",
-  "Próbna linia: {line}. Trening jest wstrzymany.": "Trial line: {line}. Training is paused.",
-  " Ustaw na Pegasusie pozycję z ekranu, aby grać na planszy.": " Set up the position from the screen on the Pegasus to play on the board.",
-  "Połącz planszę Pegasus, aby zsynchronizować pozycję.": "Connect the Pegasus board to sync the position.",
-  "Mat.": "Checkmate.",
-  "Koniec partii.": "Game over.",
-  "Liczę…": "Calculating…",
-  ", głębokość {n}": ", depth {n}",
-  " — liczę…": " — calculating…",
-  "ruch jest w repertuarze": "the move is in your repertoire",
-  "w repertuarze": "in your repertoire",
-  "Stockfish w tablecie": "Stockfish on this device",
-  "chmura Lichess": "Lichess cloud",
-  "Brak partii z tej pozycji w bazie {db}.": "No games from this position in the {db} database.",
-  "mistrzów": "masters",
-  "razem": "total",
-  "białe {w}% · remis {d}% · czarne {b}%": "white {w}% · draw {d}% · black {b}%",
-  " mln": "M",
-  " tys.": "k",
-
-  // edytor
-  "Na początek": "To the start",
-  "← Cofnij": "← Prev",
-  "Ocena": "Eval",
-  "Baza": "Database",
-  "Np. plan, typowy błąd przeciwnika, na co uważać…": "E.g. the plan, a typical opponent mistake, what to watch out for…",
-  "Pozycja startowa {n}": "Starting position {n}",
-  " (zwykła)": " (standard)",
-  "Komentarz do ruchu {san}": "Comment on the move {san}",
-  "Twoje ruchy": "Your moves",
-  "Ruchy przeciwnika": "Opponent's moves",
-  "stuknij, żeby przejść": "tap to go there",
-  "brak": "none",
-  "Nowy ruch dodasz, wykonując go na szachownicy": "Add a new move by playing it on the board",
-  " (ekran albo Pegasus)": " (screen or Pegasus)",
-  "nowy": "new",
-  "błędy: {n}": "mistakes: {n}",
-  "Usuń {san}": "Delete {san}",
-  "Usuń ruch i dalsze": "Delete the move and what follows",
-  "Dodano {san} — w tej pozycji masz teraz też: {other}": "Added {san} — in this position you now also have: {other}",
-  "Dodano ruch {san}": "Added move {san}",
-  "dalszy ruch": "further move",
-  "dalsze ruchy": "further moves",
-  "dalszych ruchów": "further moves",
-  " i {n} {word} (Twoich: {user}{learned})": " and {n} {word} (yours: {user}{learned})",
-  ", w tym poznanych: {n}": ", learned: {n}",
-  "Usunąć {san}{more}?\n\nPozycje osiągalne inną kolejnością ruchów zostaną.": "Delete {san}{more}?\n\nPositions reachable by another move order will stay.",
-  "Usunięto {san}": "Deleted {san}",
-
-  // statystyki
-  "Prognoza powtórek (14 dni)": "Review forecast (14 days)",
-  "Ostatnie 14 dni": "Last 14 days",
-  "dobrze": "correct",
-  "źle": "wrong",
-  "Najczęściej mylone": "Most often missed",
-  "Ruchy w repertuarze": "Moves in repertoire",
-  "Poznane": "Learned",
-  "Do powtórki teraz": "Due now",
-  "Skuteczność (30 dni)": "Accuracy (30 days)",
-  "Dni z rzędu": "Day streak",
-  "{san} — błędy: {n}, następna powtórka {when}": "{san} — mistakes: {n}, next review {when}",
-  "Brak błędów — albo jeszcze nic nie powtarzałeś.": "No mistakes — or you haven't reviewed anything yet.",
-
-  // ustawienia
-  "Plansza DGT Pegasus": "DGT Pegasus board",
-  "Plansza obrócona o 180° (fabryczne rzędy 7–8 przy mnie)": "Board rotated 180° (factory ranks 7–8 on my side)",
-  "Po obróceniu nadruki liter i cyfr na planszy nie pasują do pól — kieruj się diodami. Do gry czarnymi nie trzeba obracać: wystarczy repertuar czarnych, ekran sam pokaże czarne na dole.": "When rotated, the printed letters and numbers don't match the squares — follow the LEDs. You don't need to rotate it to play black: a black repertoire is enough, the screen will show black at the bottom.",
-  "Zapalaj diody przy pokazywaniu nowych ruchów": "Light the LEDs when showing new moves",
-  "Test diod (d4 e4 d5 e5)": "LED test (d4 e4 d5 e5)",
-  "Wskazówki: tylko jedno urządzenie naraz — rozłącz telefon z aplikacją DGT. Figury stawiaj na środku pól.": "Tips: only one device at a time — disconnect the phone with the DGT app. Place pieces in the centre of the squares.",
-  "Konto Lichess (baza partii)": "Lichess account (games database)",
-  "Zaloguj przez Lichess": "Log in with Lichess",
-  "Wyloguj": "Log out",
-  "albo wklej token ręcznie": "or paste a token manually",
-  "Utwórz token na lichess.org/account/oauth/token (bez zaznaczania uprawnień) i wklej tutaj.": "Create a token at lichess.org/account/oauth/token (without selecting any scopes) and paste it here.",
-  "Rankingi graczy w bazie Lichess": "Player ratings in the Lichess database",
-  "1800 i więcej": "1800 and above",
-  "2000 i więcej": "2000 and above",
-  "2200 i więcej": "2200 and above",
-  "Tempo gry": "Time control",
-  "blitz + rapid + klasyczne": "blitz + rapid + classical",
-  "rapid + klasyczne": "rapid + classical",
-  "Zalogowany jako <b>{user}</b> ✓": "Logged in as <b>{user}</b> ✓",
-  "Niezalogowany — baza partii wymaga konta Lichess (darmowe).": "Not logged in — the games database requires a (free) Lichess account.",
-  "Zalogowano jako {user}": "Logged in as {user}",
-  "Zalogowano do Lichess jako {user}": "Logged in to Lichess as {user}",
-  "Logowanie do Lichess nie powiodło się: ": "Lichess login failed: ",
-  "Trening": "Training",
-  "Nowych ruchów na sesję": "New moves per session",
-  "Pauza po linii (czas na analizę)": "Pause after a line (time to analyse)",
-  "nigdy": "never",
-  "po błędzie": "after a mistake",
-  "zawsze": "always",
-  "Gdy panel „Analiza” jest otwarty, trening zawsze czeka na „Dalej” po skończonej linii.": "When the “Analysis” panel is open, training always waits for “Next” after a line ends.",
-  "Dźwięki": "Sounds",
-  "Wersja aplikacji: {v}": "App version: {v}",
-  "Kopia zapasowa": "Backup",
-  "Dane są tylko na tym urządzeniu (w przeglądarce). Rób czasem kopię.": "Your data is only on this device (in the browser). Make a backup now and then.",
-  "Pobierz kopię (.json)": "Download backup (.json)",
-  "Przywróć z pliku": "Restore from file",
-  "Przywrócić kopię ({n} repertuarów)? Obecne dane zostaną zastąpione.": "Restore the backup ({n} repertoires)? Current data will be replaced.",
-  "Przywrócono.": "Restored.",
-  "Nie udało się: ": "Failed: ",
-  "Web Bluetooth dostępny ✓": "Web Bluetooth available ✓",
-  "Ta przeglądarka nie obsługuje Web Bluetooth — użyj Chrome na Androidzie (strona musi być otwarta przez https).": "This browser doesn't support Web Bluetooth — use Chrome on Android (the page must be opened over https).",
-  "Aplikacja jest darmowa. Jeśli Ci się przydaje —": "The app is free. If you find it useful —",
-  "postaw mi kawę ☕": "buy me a coffee ☕",
-
-  // plansza i Bluetooth
-  "Łączenie z planszą": "Connecting to the board",
-  "Spróbuj ponownie": "Try again",
-  "{name}: bateria {label}. Rozłącz planszę": "{name}: battery {label}. Disconnect the board",
-  "{name}: odczytuję stan baterii. Rozłącz planszę": "{name}: reading battery level. Disconnect the board",
-  "Łączę z planszą DGT Pegasus": "Connecting to the DGT Pegasus board",
-  "Utracono połączenie z planszą. Łączę ponownie": "Lost connection to the board. Reconnecting",
-  "Nie wybrano planszy z listy. Jeśli lista była pusta: włącz Bluetooth i lokalizację na tablecie, w ustawieniach Androida daj Chrome uprawnienie „Urządzenia w pobliżu” (i „Lokalizacja”), rozłącz telefon z aplikacją DGT i sprawdź, czy plansza jest włączona (miga niebieska dioda).": "No board was chosen from the list. If the list was empty: turn on Bluetooth and location on the tablet, give Chrome the “Nearby devices” (and “Location”) permission in Android settings, disconnect the phone with the DGT app and check that the board is on (blue LED blinking).",
-  "Przeglądarka zablokowała Bluetooth dla tej strony. Sprawdź w Chrome: ⋮ → Ustawienia → Ustawienia witryn → Bluetooth.": "The browser blocked Bluetooth for this page. Check in Chrome: ⋮ → Settings → Site settings → Bluetooth.",
-  "Brak zgody na Bluetooth. Sprawdź w Chrome: ⋮ → Ustawienia → Ustawienia witryn → Bluetooth.": "No Bluetooth permission. Check in Chrome: ⋮ → Settings → Site settings → Bluetooth.",
-  "Plansza nie odpowiada. Wyłącz i włącz planszę, upewnij się, że telefon z aplikacją DGT jest rozłączony, i spróbuj ponownie.": "The board doesn't respond. Turn the board off and on, make sure the phone with the DGT app is disconnected, and try again.",
-  "To urządzenie nie wygląda na Pegasusa (brak usługi UART).": "This device doesn't look like a Pegasus (no UART service).",
-  "Rozłączyć planszę?": "Disconnect the board?",
-  "Ta przeglądarka nie obsługuje Web Bluetooth.": "This browser doesn't support Web Bluetooth.",
-  "To jest Samsung Internet — otwórz ten adres w Google Chrome.": "This is Samsung Internet — open this address in Google Chrome.",
-  "Firefox nie obsługuje Bluetooth — otwórz ten adres w Google Chrome.": "Firefox doesn't support Bluetooth — open this address in Google Chrome.",
-  "Strona nie jest otwarta przez https.": "The page isn't opened over https.",
-  "Otwórz ten adres w Google Chrome na Androidzie (aktualna wersja).": "Open this address in Google Chrome on Android (current version).",
-  "Przeglądarka: {ua}": "Browser: {ua}",
-  "Błąd: {msg}": "Error: {msg}",
-  "Tablet zgłasza, że Bluetooth jest wyłączony lub niedostępny.": "The tablet reports that Bluetooth is off or unavailable.",
-  "Otwieram listę urządzeń Bluetooth…": "Opening the list of Bluetooth devices…",
-  "Wybrano: {name}": "Selected: {name}",
-  "(bez nazwy)": "(no name)",
-  "Łączę z planszą…": "Connecting to the board…",
-  "Połączono, szukam usługi UART…": "Connected, looking for the UART service…",
-  "Wysyłam klucz i włączam powiadomienia o polach…": "Sending the key and turning on square notifications…",
-  "Gotowe ✓": "Done ✓",
-  "{what}: brak odpowiedzi po {s} s": "{what}: no response after {s} s",
-  "Połączenie": "Connection",
-  "Usługa UART": "UART service",
-  "Plansza nie przesłała stanu pól. Wyłącz i włącz ją, a potem połącz ponownie.": "The board didn't send the square states. Turn it off and on, then connect again.",
-
-  // Lichess
-  "Logowanie przerwane (niezgodny stan) — spróbuj jeszcze raz.": "Login interrupted (state mismatch) — please try again.",
-  "Lichess nie wydał tokenu ({status}).": "Lichess didn't issue a token ({status}).",
-  "Token nie działa (Lichess go odrzucił).": "The token doesn't work (Lichess rejected it).",
-  "Zaloguj się do Lichess w Ustawieniach, żeby widzieć bazę partii.": "Log in to Lichess in Settings to see the games database.",
-  "Lichess odrzucił logowanie — zaloguj się ponownie w Ustawieniach.": "Lichess rejected the login — log in again in Settings.",
-  "Za dużo zapytań do bazy Lichess — odczekaj minutę.": "Too many requests to the Lichess database — wait a minute.",
-  "Baza Lichess odpowiedziała błędem {status}.": "The Lichess database responded with error {status}.",
-
-  // kopia zapasowa
-  "To nie jest poprawna kopia zapasowa tej aplikacji.": "This is not a valid backup of this app.",
-  "Kopia zawiera uszkodzony repertuar.": "The backup contains a damaged repertoire.",
-  "Kopia zawiera brakującą pozycję startową.": "The backup is missing a starting position.",
-  "Kopia zawiera uszkodzony fokus.": "The backup contains a damaged focus.",
-  "Kopia zawiera uszkodzoną pozycję.": "The backup contains a damaged position.",
-  "Kopia zawiera ruch bez dalszej pozycji.": "The backup contains a move without a following position.",
-};
