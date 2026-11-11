@@ -3,13 +3,14 @@ import { Pegasus } from "./pegasus.js";
 import { BoardView } from "./board.js";
 import { Engine, scoreText } from "./engine.js";
 import { lichess, explore } from "./lichess.js";
+import { t, setLang, getLang, defaultLang, translateDom, samplePgn } from "./i18n.js";
 import {
   store, importPgn, inferColor, fetchLichessStudy, exportPgn, buildLine, grade, markLearned, counts,
   forecast, weakest, lineText, isUserNode, posKey, START_FEN, DAY, focusKey, subtree,
   addMove, deleteMove, deletePreview, emptyRep, validateBackup,
 } from "./repertoire.js";
 
-const VERSION = "2026-11-11 b";
+const VERSION = "2026-11-11 c";
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -18,11 +19,6 @@ const peg = new Pegasus();
 const engine = new Engine();
 const trainAnalysis = { open: false, eval: false, db: false, fen: null, explore: null };
 const settings = () => store.data.settings;
-
-const SAMPLE_PGN = `[Event "Przykład: włoska"]
-[Orientation "white"]
-
-1. e4 e5 {Najczęstsza odpowiedź.} (1... c5 2. Nf3 d6 (2... Nc6 3. d4) 3. d4) (1... e6 2. d4 d5 3. Nc3) 2. Nf3 Nc6 (2... d6 3. d4) 3. Bc4 {Partia włoska.} Bc5 (3... Nf6 4. d3) 4. c3 Nf6 5. d3 *`;
 
 // ---------------------------------------------------------------- dźwięki
 
@@ -135,7 +131,7 @@ class Trainer {
 
   renderLine(steps, upto, rootFen) {
     const sans = steps.slice(0, upto).map((s) => s.san);
-    $("#t-line").textContent = sans.length ? lineText(rootFen, sans) : "(pozycja wyjściowa)";
+    $("#t-line").textContent = sans.length ? lineText(rootFen, sans) : t("(pozycja wyjściowa)");
   }
 
   /** Liczniki repertuaru albo — przy treningu fokusu — tylko jego wycinka. */
@@ -149,8 +145,8 @@ class Trainer {
     const c = this.counts();
     $("#t-progress").innerHTML =
       `<span class="pill ok">✓ ${s.ok}</span><span class="pill bad">✗ ${s.fail}</span>` +
-      (s.learned ? `<span class="pill">nowe: ${s.learned}</span>` : "") +
-      `<span class="muted">do powtórki: ${c.due}</span>`;
+      (s.learned ? `<span class="pill">${t("nowe")}: ${s.learned}</span>` : "") +
+      `<span class="muted">${t("do powtórki")}: ${c.due}</span>`;
   }
 
   setComment(step) {
@@ -221,8 +217,8 @@ class Trainer {
           this.board.setDiff({ missing, extra });
           if (ledDiff) peg.leds([...missing, ...extra]);
           $("#t-sub").textContent =
-            (missing.length ? `Brakuje bierki na: ${missing.join(" ")}. ` : "") +
-            (extra.length ? `Zbędna bierka na: ${extra.join(" ")}.` : "");
+            (missing.length ? t("Brakuje bierki na: {sq}. ", { sq: missing.join(" ") }) : "") +
+            (extra.length ? t("Zbędna bierka na: {sq}.", { sq: extra.join(" ") }) : "");
         }, diffDelay ?? (ledDiff ? 1200 : 3500));
       };
       const h = () => check();
@@ -327,11 +323,11 @@ class Trainer {
 
   async opponentMove(step) {
     const m = this.verbose(step.uci);
-    const side = this.rep.color === "w" ? "czarne" : "białe";
+    const side = this.rep.color === "w" ? t("czarne") : t("białe");
     this.status(
-      `Przeciwnik (${side}): ${step.san}`,
+      t("Przeciwnik ({side}): {san}", { side, san: step.san }),
       this.physical()
-        ? `Przestaw bierkę przeciwnika: ${m.from}→${m.to} (świeci na planszy${peg.rotated ? " — kieruj się diodami, nadruki są odwrócone" : ""}).`
+        ? t("Przestaw bierkę przeciwnika: {from}→{to} (świeci na planszy{rot}).", { from: m.from, to: m.to, rot: peg.rotated ? t(" — kieruj się diodami, nadruki są odwrócone") : "" })
         : ""
     );
     if (this.physical()) {
@@ -364,7 +360,7 @@ class Trainer {
     this.hintFor = null;
     const m = this.verbose(step.uci);
     for (;;) {
-      this.status(learn ? `Nowy ruch: ${step.san}` : `Zagraj: ${step.san}`, learn ? "Zapamiętaj go — za chwilę sprawdzian." : "Ten ruch znasz — tylko przypomnienie.", learn ? "new" : "");
+      this.status(learn ? t("Nowy ruch: {san}", { san: step.san }) : t("Zagraj: {san}", { san: step.san }), learn ? t("Zapamiętaj go — za chwilę sprawdzian.") : t("Ten ruch znasz — tylko przypomnienie."), learn ? "new" : "");
       this.setComment(learn ? step : null);
       const shapes = (step.edge.shapes || []).filter(() => learn);
       this.show({ arrows: [{ from: m.from, to: m.to, c: "G" }, ...shapes], hl: { hint: [m.from, m.to] } });
@@ -372,7 +368,7 @@ class Trainer {
       const got = await this.waitUserMove(step.uci);
       if (uciOf(got) === step.uci) break;
       beep("bad");
-      this.status(`To nie ten ruch (${got.san})`, "Cofnij go i zagraj podświetlony.", "bad");
+      this.status(t("To nie ten ruch ({san})", { san: got.san }), t("Cofnij go i zagraj podświetlony."), "bad");
       await this.takeBack(got);
     }
     if (this.physical()) peg.leds([]);
@@ -393,9 +389,9 @@ class Trainer {
       }
       this.show({ arrows: [{ from: m.from, to: m.to, c: "R" }], hl: { hint: [m.from, m.to] } });
       if (this.physical()) peg.leds(moveSquares(m));
-      this.status(`Poprawnie: ${step.san}`, "Zagraj ten ruch.", "bad");
+      this.status(t("Poprawnie: {san}", { san: step.san }), t("Zagraj ten ruch."), "bad");
     };
-    this.status(`Twój ruch (${this.rep.color === "w" ? "białe" : "czarne"})`, alts.length > 1 ? `W tej pozycji masz ${alts.length} ruchy w repertuarze.` : "");
+    this.status(t("Twój ruch ({side})", { side: this.rep.color === "w" ? t("białe") : t("czarne") }), alts.length > 1 ? t("W tej pozycji masz {n} ruchy w repertuarze.", { n: alts.length }) : "");
     this.setComment(null);
     this.show();
     for (;;) {
@@ -403,13 +399,13 @@ class Trainer {
       const uci = uciOf(got);
       if (uci === step.uci) break;
       if (alts.includes(uci)) {
-        this.status(`${got.san} też jest w repertuarze`, `W tym wariancie zagraj ${step.san}. Cofnij ruch.`, "warn");
+        this.status(t("{san} też jest w repertuarze", { san: got.san }), t("W tym wariancie zagraj {san}. Cofnij ruch.", { san: step.san }), "warn");
         this.show({ arrows: [{ from: m.from, to: m.to, c: "G" }], hl: { hint: [m.from, m.to] } });
         beep("move");
         await this.takeBack(got);
         if (!this.physical()) await this.sleep(900);
         if (this.physical()) peg.leds(moveSquares(m));
-        this.status(`Zagraj: ${step.san}`, "To ruch ćwiczonego wariantu.", "warn");
+        this.status(t("Zagraj: {san}", { san: step.san }), t("To ruch ćwiczonego wariantu."), "warn");
         this.show({ arrows: [{ from: m.from, to: m.to, c: "G" }], hl: { hint: [m.from, m.to] } });
         continue;
       }
@@ -420,16 +416,16 @@ class Trainer {
       }
       const fork = alts.length > 1;
       this.show({ arrows: [{ from: got.from, to: got.to, c: "R" }, ...(fork ? [{ from: m.from, to: m.to, c: "G" }] : [])], hl: { bad: [got.from, got.to] } });
-      this.status(fork ? `Źle: ${got.san}. Poprawnie: ${step.san}` : `Źle: ${got.san}`, this.physical() ? "Cofnij ruch (miga na planszy)." : "Spróbuj ponownie.", "bad");
+      this.status(fork ? t("Źle: {bad}. Poprawnie: {san}", { bad: got.san, san: step.san }) : t("Źle: {bad}", { bad: got.san }), this.physical() ? t("Cofnij ruch (miga na planszy).") : t("Spróbuj ponownie."), "bad");
       if (this.physical()) await this.takeBack(got);
       else await this.sleep(1300);
       if (fork) {
         if (this.physical()) peg.leds(moveSquares(m));
         this.show({ arrows: [{ from: m.from, to: m.to, c: "G" }], hl: { hint: [m.from, m.to] } });
-        this.status(`Zagraj: ${step.san}`, `(zagrałeś ${got.san})`, "bad");
+        this.status(t("Zagraj: {san}", { san: step.san }), t("(zagrałeś {san})", { san: got.san }), "bad");
       } else {
         this.show();
-        this.status("Twój ruch", "Spróbuj ponownie lub użyj Podpowiedzi.", "bad");
+        this.status(t("Twój ruch"), t("Spróbuj ponownie lub użyj Podpowiedzi."), "bad");
       }
     }
     this.hintFor = null;
@@ -485,9 +481,9 @@ class Trainer {
     this.lastMove = null;
     this.show();
     this.status(
-      "Ustaw pozycję jak na ekranie",
-      target ? "Świecą pola do zmiany — czerwona ramka: zdejmij, niebieska: postaw. Możesz nacisnąć „Od początku”."
-        : "Ustaw pozycję początkową — czerwona ramka: zdejmij, niebieska: postaw.",
+      t("Ustaw pozycję jak na ekranie"),
+      target ? t("Świecą pola do zmiany — czerwona ramka: zdejmij, niebieska: postaw. Możesz nacisnąć „Od początku”.")
+        : t("Ustaw pozycję początkową — czerwona ramka: zdejmij, niebieska: postaw."),
       "warn"
     );
     $("#t-nav-options").hidden = target === 0;
@@ -551,8 +547,8 @@ class Trainer {
     this.hintFor = null;
     $("#t-hint").hidden = true;
     this.status(
-      failed ? "Linia z błędem" : "Koniec linii",
-      (failed ? "„Analiza” → „Wypróbuj ruchy”, a „← Cofnij ruch” wraca do miejsca błędu. " : "Możesz przeanalizować pozycję. ") + "Potem naciśnij „Dalej”.",
+      failed ? t("Linia z błędem") : t("Koniec linii"),
+      (failed ? t("„Analiza” → „Wypróbuj ruchy”, a „← Cofnij ruch” wraca do miejsca błędu. ") : t("Możesz przeanalizować pozycję. ")) + t("Potem naciśnij „Dalej”."),
       failed ? "warn" : ""
     );
     return this._wait((done, onCleanup) => {
@@ -578,7 +574,7 @@ class Trainer {
     this.synced = false;
     this.lastMove = null;
     this.board.setOrientation(rep.color);
-    $("#t-title").textContent = `${rep.name}${focus ? ` › ${focus.name}` : ""} — ${{ learn: "nowe ruchy", review: "powtórki", drill: "przegląd całości" }[mode]}`;
+    $("#t-title").textContent = `${rep.name}${focus ? ` › ${focus.name}` : ""} — ${t({ learn: "nowe ruchy", review: "powtórki", drill: "przegląd całości" }[mode])}`;
     $("#t-hint").hidden = true;
     $("#t-nav-options").hidden = true;
     this.hintFor = null;
@@ -590,8 +586,8 @@ class Trainer {
       if (peg.state === "lost" || peg.state === "connecting" || peg.state === "off") {
         if (!pausedStatus) pausedStatus = [$("#t-status").textContent, $("#t-sub").textContent, $("#t-status").dataset.tone];
         this.status(
-          peg.state === "off" ? "Plansza rozłączona" : "Łączę ponownie z planszą…",
-          peg.state === "off" ? "Połącz ją ponownie albo zakończ trening." : "Trening wznowi się po odczytaniu pozycji.",
+          peg.state === "off" ? t("Plansza rozłączona") : t("Łączę ponownie z planszą…"),
+          peg.state === "off" ? t("Połącz ją ponownie albo zakończ trening.") : t("Trening wznowi się po odczytaniu pozycji."),
           "warn"
         );
         this.board.setDiff(null);
@@ -619,7 +615,7 @@ class Trainer {
           await this.playLine(line, "show");
           newLeft -= n;
           // od razu sprawdzian tej samej linii
-          this.status("Sprawdzian", "Teraz bez podpowiedzi.", "new");
+          this.status(t("Sprawdzian"), t("Teraz bez podpowiedzi."), "new");
           await this.sleep(900);
           const quiz = { root: line.root, steps: line.steps.map((s) => ({ ...s })) };
           await this.playLine(quiz, "quiz");
@@ -635,7 +631,7 @@ class Trainer {
               retryRound = true;
               if (mode === "drill") for (const k of this.retry) drilled.delete(k);
               this.retry.clear();
-              this.status("Poprawka błędów", "Jeszcze raz ruchy, które się nie udały.", "warn");
+              this.status(t("Poprawka błędów"), t("Jeszcze raz ruchy, które się nie udały."), "warn");
               await this.sleep(1200);
               continue;
             }
@@ -649,7 +645,7 @@ class Trainer {
     } catch (e) {
       if (!(e instanceof Abort)) {
         console.error(e);
-        this.status("Błąd", String(e.message || e), "bad");
+        this.status(t("Błąd"), String(e.message || e), "bad");
       }
     } finally {
       peg.removeEventListener("state", onConnection);
@@ -669,11 +665,11 @@ class Trainer {
     this.hintFor = null;
     $("#t-hint").hidden = true;
     if (this.mode === "drill")
-      this.status(s.ok + s.fail ? "Przegląd zrobiony 🎉" : "Nic do przeglądu", s.ok + s.fail ? `✓ ${s.ok}  ✗ ${s.fail}  (${Math.round((100 * s.ok) / (s.ok + s.fail))}%). Błędne ruchy wróciły do powtórek.` : `Najpierw poznaj nowe ruchy (${c.fresh}).`, "good");
+      this.status(s.ok + s.fail ? t("Przegląd zrobiony 🎉") : t("Nic do przeglądu"), s.ok + s.fail ? `✓ ${s.ok}  ✗ ${s.fail}  (${Math.round((100 * s.ok) / (s.ok + s.fail))}%). ` + t("Błędne ruchy wróciły do powtórek.") : t("Najpierw poznaj nowe ruchy ({n}).", { n: c.fresh }), "good");
     else if (this.mode === "learn")
-      this.status(s.learned ? `Poznane nowe ruchy: ${s.learned}` : "Brak nowych ruchów", `Sprawdzian: ✓ ${s.ok}  ✗ ${s.fail}. Nowych zostało: ${c.fresh}.`, "good");
+      this.status(s.learned ? t("Poznane nowe ruchy: {n}", { n: s.learned }) : t("Brak nowych ruchów"), t("Sprawdzian: ✓ {ok}  ✗ {fail}. Nowych zostało: {n}.", { ok: s.ok, fail: s.fail, n: c.fresh }), "good");
     else
-      this.status(s.ok + s.fail ? "Powtórki zrobione 🎉" : "Nic do powtórki", s.ok + s.fail ? `✓ ${s.ok}  ✗ ${s.fail}  (${Math.round((100 * s.ok) / (s.ok + s.fail))}%)` : `Następne powtórki: ${nextDueText(this.rep, this.focus && subtree(this.rep, focusKey(this.rep, this.focus)))}. Możesz poznać nowe ruchy (${c.fresh}).`, "good");
+      this.status(s.ok + s.fail ? t("Powtórki zrobione 🎉") : t("Nic do powtórki"), s.ok + s.fail ? `✓ ${s.ok}  ✗ ${s.fail}  (${Math.round((100 * s.ok) / (s.ok + s.fail))}%)` : t("Następne powtórki: {when}. Możesz poznać nowe ruchy ({n}).", { when: nextDueText(this.rep, this.focus && subtree(this.rep, focusKey(this.rep, this.focus))), n: c.fresh }), "good");
     this.renderStats();
     $("#t-stop").hidden = true;
     $("#t-back-rep").hidden = false;
@@ -690,13 +686,13 @@ function nextDueText(rep, keys = null) {
   return whenText(min);
 }
 
-function whenText(t) {
-  const d = t - Date.now();
-  if (d <= 0) return "teraz";
-  if (d < 3600e3) return `za ${Math.max(1, Math.round(d / 60e3))} min`;
-  if (d < DAY) return `za ${Math.round(d / 3600e3)} h`;
+function whenText(time) {
+  const d = time - Date.now();
+  if (d <= 0) return t("teraz");
+  if (d < 3600e3) return t("za {n} min", { n: Math.max(1, Math.round(d / 60e3)) });
+  if (d < DAY) return t("za {n} h", { n: Math.round(d / 3600e3) });
   const days = Math.round(d / DAY);
-  return days === 1 ? "jutro" : `za ${days} dni`;
+  return days === 1 ? t("jutro") : t("za {n} dni", { n: days });
 }
 
 // ---------------------------------------------------------------- widoki
@@ -737,11 +733,11 @@ function renderHome() {
         return `<div class="card rep" data-id="${r.id}">
           <div class="rep-head">
             <span class="color-dot ${r.color}"></span>
-            <h3>${esc(r.name)}</h3>
-            <span class="muted">${r.color === "w" ? "białe" : "czarne"} · ${c.total} ruchów</span>
+            <h3 data-no-i18n>${esc(r.name)}</h3>
+            <span class="muted">${r.color === "w" ? t("białe") : t("czarne")} · ${t("{n} ruchów", { n: c.total })}</span>
           </div>
           <div class="bar"><span style="width:${pct}%"></span></div>
-          <div class="muted small">poznane ${c.learned}/${c.total} · nowe ${c.fresh} · następne powtórki: ${c.due ? "teraz" : nextDueText(r)}</div>
+          <div class="muted small">${t("poznane {learned}/{total} · nowe {fresh} · następne powtórki: {when}", { ...c, when: c.due ? t("teraz") : nextDueText(r) })}</div>
           <div class="row">
             <button class="primary" data-act="review" ${c.due ? "" : "disabled"}>Powtórki <b>${c.due}</b></button>
             <button class="accent" data-act="learn" ${c.fresh ? "" : "disabled"}>Nowe ruchy <b>${Math.min(c.fresh, Number(settings().newPerSession) || 10)}</b></button>
@@ -762,7 +758,7 @@ function renderHome() {
   }
   const totalDue = reps.reduce((n, r) => n + counts(r).due, 0);
   $("#home-summary").textContent = reps.length
-    ? totalDue ? `Do powtórki dzisiaj: ${totalDue}` : "Wszystkie powtórki zrobione."
+    ? totalDue ? t("Do powtórki dzisiaj: {n}", { n: totalDue }) : t("Wszystkie powtórki zrobione.")
     : "";
 }
 
@@ -770,7 +766,7 @@ function renderHome() {
 function focusHtml(rep, f) {
   const key = focusKey(rep, f);
   const line = lineText(rep.nodes[f.root]?.fen || START_FEN, f.sans || []);
-  const head = `<div class="focus-head"><b>🎯 ${esc(f.name)}</b>${f.name !== line ? `<span class="muted small">${esc(line)}</span>` : ""}` +
+  const head = `<div class="focus-head"><b data-no-i18n>🎯 ${esc(f.name)}</b>${f.name !== line ? `<span class="muted small">${esc(line)}</span>` : ""}` +
     `<button class="ghost focus-del" data-act="focus-del" aria-label="Usuń fokus" title="Usuń fokus (ruchy i postępy zostają)">✕</button></div>`;
   if (!key)
     return `<div class="focus" data-focus="${esc(f.id)}">${head}
@@ -778,7 +774,7 @@ function focusHtml(rep, f) {
   const keys = subtree(rep, key);
   const c = counts(rep, Date.now(), keys);
   return `<div class="focus" data-focus="${esc(f.id)}">${head}
-    <div class="muted small">poznane ${c.learned}/${c.total} · nowe ${c.fresh} · następne powtórki: ${c.due ? "teraz" : nextDueText(rep, keys)}</div>
+    <div class="muted small">${t("poznane {learned}/{total} · nowe {fresh} · następne powtórki: {when}", { ...c, when: c.due ? t("teraz") : nextDueText(rep, keys) })}</div>
     <div class="row">
       <button class="primary" data-act="review" ${c.due ? "" : "disabled"}>Powtórki <b>${c.due}</b></button>
       <button class="accent" data-act="learn" ${c.fresh ? "" : "disabled"}>Nowe <b>${Math.min(c.fresh, Number(settings().newPerSession) || 10)}</b></button>
@@ -794,8 +790,8 @@ async function onHomeClick(e) {
   const act = btn.dataset.act;
   if (act === "import") return openImport(null);
   if (act === "sample") {
-    const r = store.newRep("Przykład: włoska", "w");
-    importPgn(r, SAMPLE_PGN);
+    const r = store.newRep(t("Przykład: włoska"), "w");
+    importPgn(r, samplePgn());
     await store.saveNow();
     return renderHome();
   }
@@ -818,21 +814,27 @@ async function onHomeClick(e) {
   if (act === "add") return openImport(rep);
   if (act === "export") return download(`${rep.name}.pgn`, exportPgn(rep), "application/x-chess-pgn");
   if (act === "rename") {
-    const n = prompt("Nowa nazwa:", rep.name);
+    const n = prompt(t("Nowa nazwa:"), rep.name);
     if (n) { rep.name = n.trim(); store.save(); renderHome(); }
     return;
   }
   if (act === "reset") {
-    if (!confirm(`Wyzerować postępy w „${rep.name}”? Ruchy zostaną, ale wszystkie będą znów nowe.`)) return;
+    if (!confirm(t("Wyzerować postępy w „{name}”? Ruchy zostaną, ale wszystkie będą znów nowe.", { name: rep.name }))) return;
     for (const n of Object.values(rep.nodes)) for (const ed of Object.values(n.moves)) delete ed.srs;
     store.save();
     return renderHome();
   }
   if (act === "delete") {
-    if (!confirm(`Usunąć repertuar „${rep.name}”? Tego nie da się cofnąć (chyba że masz kopię zapasową).`)) return;
+    if (!confirm(t("Usunąć repertuar „{name}”? Tego nie da się cofnąć (chyba że masz kopię zapasową).", { name: rep.name }))) return;
     store.deleteRep(rep.id);
     renderHome();
   }
+}
+
+/** Pyta o figurę promocji; przyjmuje litery polskie (h w g s) i angielskie (q r b n). */
+function askPromotion() {
+  const p = (prompt(t("Promocja na: h (hetman), w (wieża), g (goniec), s (skoczek)"), getLang() === "en" ? "q" : "h") || "q").toLowerCase()[0];
+  return { h: "q", w: "r", g: "b", s: "n", q: "q", r: "r", b: "b", n: "n" }[p] || "q";
 }
 
 function download(name, text, type = "text/plain") {
@@ -850,7 +852,7 @@ let importTarget = null;
 function openImport(rep) {
   importTarget = rep;
   $("#imp-new").hidden = !!rep;
-  $("#imp-title").textContent = rep ? `Dodaj do: ${rep.name}` : "Nowy repertuar";
+  $("#imp-title").textContent = rep ? t("Dodaj do: {name}", { name: rep.name }) : t("Nowy repertuar");
   $("#imp-result").innerHTML = "";
   go("import");
 }
@@ -866,10 +868,10 @@ async function doImport() {
     if (src === "lichess") text = await fetchLichessStudy($("#imp-url").value.trim());
     else if (src === "file") {
       const f = $("#imp-file").files[0];
-      if (!f) throw new Error("Wybierz plik PGN.");
+      if (!f) throw new Error(t("Wybierz plik PGN."));
       text = await f.text();
     } else text = $("#imp-text").value;
-    if (!text || !text.trim()) throw new Error("Pusty PGN.");
+    if (!text || !text.trim()) throw new Error(t("Pusty PGN."));
 
     let rep = importTarget;
     let guessed = false;
@@ -887,7 +889,7 @@ async function doImport() {
         }
       }
       let name = $("#imp-name").value.trim();
-      if (!name) name = (text.match(/\[StudyName\s+"([^"]+)"\]/) || text.match(/\[Event\s+"([^"]+)"\]/) || [])[1] || "Mój repertuar";
+      if (!name) name = (text.match(/\[StudyName\s+"([^"]+)"\]/) || text.match(/\[Event\s+"([^"]+)"\]/) || [])[1] || t("Mój repertuar");
       rep = store.newRep(name, color);
       guessed = guess;
     }
@@ -895,16 +897,16 @@ async function doImport() {
     await store.saveNow();
     const c = counts(rep);
     out.innerHTML = `<div class="card ok-card">
-      <b>Gotowe.</b> Wczytano ${res.games} ${res.games === 1 ? "partię/rozdział" : "partii/rozdziałów"}, nowych ruchów: ${res.added}.
-      Twoich ruchów do nauki w repertuarze „${esc(rep.name)}” (${rep.color === "w" ? "białe" : "czarne"}): ${c.total}.
+      ${t("<b>Gotowe.</b> Wczytano {games} {what}, nowych ruchów: {added}.", { games: res.games, what: res.games === 1 ? t("partię/rozdział") : t("partii/rozdziałów"), added: res.added })}
+      ${t("Twoich ruchów do nauki w repertuarze „{name}” ({color}): {total}.", { name: esc(rep.name), color: rep.color === "w" ? t("białe") : t("czarne"), total: c.total })}
       ${guessed ? `<p class="small">Kolor rozpoznany po kształcie drzewa wariantów — jeśli się nie zgadza, usuń repertuar i zaimportuj z wybranym kolorem.</p>` : ""}
-      ${res.errors.length ? `<details><summary>Pominięte fragmenty (${res.errors.length})</summary><ul>${res.errors.slice(0, 30).map((x) => `<li>${esc(x)}</li>`).join("")}</ul></details>` : ""}
+      ${res.errors.length ? `<details><summary>${t("Pominięte fragmenty ({n})", { n: res.errors.length })}</summary><ul>${res.errors.slice(0, 30).map((x) => `<li>${esc(x)}</li>`).join("")}</ul></details>` : ""}
       <div class="row"><button class="primary" data-go="home">Do repertuarów</button></div></div>`;
     if (!importTarget) {
       $("#imp-name").value = "";
       importTarget = rep;
       $("#imp-new").hidden = true;
-      $("#imp-title").textContent = `Dodaj do: ${rep.name}`;
+      $("#imp-title").textContent = t("Dodaj do: {name}", { name: rep.name });
     }
   } catch (e) {
     out.innerHTML = `<div class="card bad-card">${esc(e.message || e)}</div>`;
@@ -925,14 +927,14 @@ function startTraining(rep, mode, focus = null) {
   trainAnalysis.fen = null;
   go("train");
   renderTrainAnalysis(true);
-  $("#t-stop").textContent = "Zakończ";
+  $("#t-stop").textContent = t("Zakończ");
   $("#t-stop").hidden = false;
   $("#t-back-rep").hidden = true;
   $("#t-comment").hidden = true;
   $("#t-line").textContent = "";
   if (!peg.occ || peg.state !== "on")
-    $("#t-mode").textContent = "Bez planszy — ruchy na ekranie (dotknij bierkę, potem pole).";
-  else $("#t-mode").textContent = `Plansza: ${peg.device?.name || "Pegasus"}`;
+    $("#t-mode").textContent = t("Bez planszy — ruchy na ekranie (dotknij bierkę, potem pole).");
+  else $("#t-mode").textContent = t("Plansza: {name}", { name: peg.device?.name || "Pegasus" });
   trainer.run(rep, mode, focus);
 }
 
@@ -941,7 +943,7 @@ function renderTrainAnalysis(force = false) {
   $("#view-train").classList.toggle("analysis-open", state.open);
   $("#t-analysis").hidden = !state.open;
   $("#t-analysis-toggle").setAttribute("aria-expanded", String(state.open));
-  $("#t-analysis-toggle").textContent = state.open ? "Zamknij analizę" : "Analiza";
+  $("#t-analysis-toggle").textContent = state.open ? t("Zamknij analizę") : t("Analiza");
   $("#t-eval-toggle").setAttribute("aria-pressed", String(state.eval));
   $("#t-db-toggle").setAttribute("aria-pressed", String(state.db));
   $("#t-eval").hidden = !state.eval;
@@ -955,8 +957,8 @@ function renderTrainAnalysis(force = false) {
   }
   const fen = (state.explore?.chess || trainer.pos)?.fen();
   if (!fen) {
-    $("#t-eval").textContent = "Czekam na pozycję…";
-    $("#t-db-body").textContent = "Czekam na pozycję…";
+    $("#t-eval").textContent = t("Czekam na pozycję…");
+    $("#t-db-body").textContent = t("Czekam na pozycję…");
     return;
   }
   if (!force && state.fen === fen) return;
@@ -1023,19 +1025,19 @@ function drawTrainExplore() {
     if (!options.length) return;
     let move = options[0];
     if (options.length > 1) {
-      const p = (prompt("Promocja na: h (hetman), w (wieża), g (goniec), s (skoczek)", "h") || "h").toLowerCase()[0];
-      move = options.find((m) => m.promotion === ({ h: "q", w: "r", g: "b", s: "n" }[p] || "q")) || move;
+      const p = askPromotion();
+      move = options.find((m) => m.promotion === p) || move;
     }
     playTrainExplore(move);
   };
   $("#t-explore-back").disabled = e.restoring || !history.length;
   $("#t-explore-reset").disabled = e.restoring || e.chess.fen() === e.root;
   $("#t-explore-return").disabled = e.restoring;
-  const line = history.length ? lineText(e.start, history.map((m) => m.san)) : "pozycja treningowa";
+  const line = history.length ? lineText(e.start, history.map((m) => m.san)) : t("pozycja treningowa");
   $("#t-explore-info").textContent = e.restoring
-    ? "Ustaw na Pegasusie pozycję pokazaną na ekranie, aby wrócić do treningu."
-    : `Próbna linia: ${line}. Trening jest wstrzymany.` +
-      (e.physical && !e.synced ? " Ustaw na Pegasusie pozycję z ekranu, aby grać na planszy." : "");
+    ? t("Ustaw na Pegasusie pozycję pokazaną na ekranie, aby wrócić do treningu.")
+    : t("Próbna linia: {line}. Trening jest wstrzymany.", { line }) +
+      (e.physical && !e.synced ? t(" Ustaw na Pegasusie pozycję z ekranu, aby grać na planszy.") : "");
   renderTrainAnalysis(true);
 }
 
@@ -1057,7 +1059,7 @@ function onTrainExploreOcc(event) {
   const occ = peg.state === "on" ? peg.occupied() : null;
   if (!occ) {
     e.synced = false;
-    $("#t-explore-info").textContent = "Połącz planszę Pegasus, aby zsynchronizować pozycję.";
+    $("#t-explore-info").textContent = t("Połącz planszę Pegasus, aby zsynchronizować pozycję.");
     return;
   }
   const want = occOf(e.chess);
@@ -1176,7 +1178,7 @@ function browsePlay(mv) {
   const { added } = addMove(rep, key, mv);
   browse.path.push(uciOf(mv));
   if (added) {
-    toast(userBefore.length ? `Dodano ${mv.san} — w tej pozycji masz teraz też: ${userBefore.join(", ")}` : `Dodano ruch ${mv.san}`);
+    toast(userBefore.length ? t("Dodano {san} — w tej pozycji masz teraz też: {other}", { san: mv.san, other: userBefore.join(", ") }) : t("Dodano ruch {san}", { san: mv.san }));
     beep("ok");
   } else beep("move");
   renderBrowse();
@@ -1200,33 +1202,33 @@ function renderBrowse() {
     if (!ms.length) return;
     let m = ms[0];
     if (ms.length > 1) {
-      const p = (prompt("Promocja na: h (hetman), w (wieża), g (goniec), s (skoczek)", "h") || "h").toLowerCase()[0];
-      m = ms.find((x) => x.promotion === ({ h: "q", w: "r", g: "b", s: "n" }[p] || "q")) || ms[0];
+      const p = askPromotion();
+      m = ms.find((x) => x.promotion === p) || ms[0];
     }
     browsePlay(m);
   };
 
   $("#b-title").textContent = rep.name;
   $("#b-focus").hidden = !browse.path.length;
-  $("#b-line").textContent = sans.length ? lineText(rootFen, sans) : "(pozycja wyjściowa)";
+  $("#b-line").textContent = sans.length ? lineText(rootFen, sans) : t("(pozycja wyjściowa)");
   $("#b-roots").hidden = rep.roots.length < 2;
-  $("#b-roots").innerHTML = rep.roots.map((r, i) => `<option value="${esc(r)}" ${r === browse.root ? "selected" : ""}>Pozycja startowa ${i + 1}${r === posKey(START_FEN) ? " (zwykła)" : ""}</option>`).join("");
+  $("#b-roots").innerHTML = rep.roots.map((r, i) => `<option value="${esc(r)}" ${r === browse.root ? "selected" : ""}>${t("Pozycja startowa {n}", { n: i + 1 })}${r === posKey(START_FEN) ? t(" (zwykła)") : ""}</option>`).join("");
 
   const cbox = $("#b-comment-box");
   cbox.hidden = !lastEdge;
   if (lastEdge) {
-    $("#b-comment-label").textContent = `Komentarz do ruchu ${sans[sans.length - 1]}`;
+    $("#b-comment-label").textContent = t("Komentarz do ruchu {san}", { san: sans[sans.length - 1] });
     const ta = $("#b-comment");
     if (document.activeElement !== ta) ta.value = lastEdge.comment || "";
   }
 
   $("#b-moves").innerHTML =
-    `<p class="muted small">${user ? "Twoje ruchy" : "Ruchy przeciwnika"} — ${edges.length ? "stuknij, żeby przejść" : "brak"}. Nowy ruch dodasz, wykonując go na szachownicy${peg.state === "on" ? " (ekran albo Pegasus)" : ""}.</p>` +
+    `<p class="muted small">${user ? t("Twoje ruchy") : t("Ruchy przeciwnika")} — ${edges.length ? t("stuknij, żeby przejść") : t("brak")}. ${t("Nowy ruch dodasz, wykonując go na szachownicy")}${peg.state === "on" ? t(" (ekran albo Pegasus)") : ""}.</p>` +
     edges
       .map(([u, e]) => {
         let st = "";
-        if (user) st = !e.srs ? `<span class="pill">nowy</span>` : e.srs.due <= Date.now() ? `<span class="pill bad">do powtórki</span>` : `<span class="pill ok">${whenText(e.srs.due)}</span>`;
-        return `<div class="move-row"><button class="move-btn" data-uci="${u}"><b>${esc(e.san)}</b> ${st}${e.srs && e.srs.lapses ? `<span class="muted small">błędy: ${e.srs.lapses}</span>` : ""}${e.comment ? `<span class="muted small" title="${esc(e.comment)}">💬</span>` : ""}</button><button class="ghost del" data-del="${u}" aria-label="Usuń ${esc(e.san)}" title="Usuń ruch i dalsze">🗑</button></div>`;
+        if (user) st = !e.srs ? `<span class="pill">nowy</span>` : e.srs.due <= Date.now() ? `<span class="pill bad">${t("do powtórki")}</span>` : `<span class="pill ok">${whenText(e.srs.due)}</span>`;
+        return `<div class="move-row"><button class="move-btn" data-uci="${u}"><b>${esc(e.san)}</b> ${st}${e.srs && e.srs.lapses ? `<span class="muted small">${t("błędy: {n}", { n: e.srs.lapses })}</span>` : ""}${e.comment ? `<span class="muted small" title="${esc(e.comment)}">💬</span>` : ""}</button><button class="ghost del" data-del="${u}" aria-label="${t("Usuń {san}", { san: esc(e.san) })}" title="${t("Usuń ruch i dalsze")}">🗑</button></div>`;
       })
       .join("");
   syncBrowsePhysical();
@@ -1236,7 +1238,7 @@ function renderBrowse() {
 
 // --- baza partii Lichess w edytorze
 
-const fmtN = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + " mln" : n >= 1e4 ? Math.round(n / 1e3) + " tys." : String(n));
+const fmtN = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + t(" mln") : n >= 1e4 ? Math.round(n / 1e3) + t(" tys.") : String(n));
 
 let dbRequest = 0;
 async function renderDb(chess, node) {
@@ -1261,7 +1263,7 @@ async function renderDatabase(fen, node, src, body, opening, isCurrent, interact
     if (request !== dbRequest || !isCurrent()) return;
     opening.textContent = d.opening ? `${d.opening.eco} ${d.opening.name}` : "";
     if (!d.moves.length) {
-      body.innerHTML = `<p class="muted small">Brak partii z tej pozycji w bazie ${src === "masters" ? "mistrzów" : "Lichess"}.</p>`;
+      body.innerHTML = `<p class="muted small">${t("Brak partii z tej pozycji w bazie {db}.", { db: src === "masters" ? t("mistrzów") : "Lichess" })}</p>`;
       return;
     }
     const inRep = new Set(Object.values(node.moves).map((e) => e.san));
@@ -1270,7 +1272,7 @@ async function renderDatabase(fen, node, src, body, opening, isCurrent, interact
       const w = pct(m.white, m.games), dr = pct(m.draws, m.games), b = 100 - w - dr;
       return `<tr${interactive ? ` data-san="${esc(m.san)}"` : ""}><td class="san">${esc(m.san)} ${inRep.has(m.san) ? `<span class="pill ok" title="w repertuarze">✓</span>` : ""}</td>
         <td class="num">${pct(m.games, d.total)}%</td><td class="num muted">${fmtN(m.games)}</td>
-        <td><div class="wdl" title="białe ${w}% · remis ${dr}% · czarne ${b}%"><span class="w" style="width:${w}%">${w > 12 ? w + "%" : ""}</span><span class="d" style="width:${dr}%">${dr > 12 ? dr + "%" : ""}</span><span class="b" style="width:${b}%">${b > 12 ? b + "%" : ""}</span></div></td></tr>`;
+        <td><div class="wdl" title="${t("białe {w}% · remis {d}% · czarne {b}%", { w, d: dr, b })}"><span class="w" style="width:${w}%">${w > 12 ? w + "%" : ""}</span><span class="d" style="width:${dr}%">${dr > 12 ? dr + "%" : ""}</span><span class="b" style="width:${b}%">${b > 12 ? b + "%" : ""}</span></div></td></tr>`;
     };
     body.innerHTML = `<table class="db-table">${d.moves.map(row).join("")}<tr class="db-total"><td>razem</td><td></td><td class="num">${fmtN(d.total)}</td><td></td></tr></table>`;
   } catch (e) {
@@ -1281,7 +1283,7 @@ async function renderDatabase(fen, node, src, body, opening, isCurrent, interact
 
 function renderLichess() {
   const u = lichess.user();
-  $("#li-status").innerHTML = u ? `Zalogowany jako <b>${esc(u)}</b> ✓` : `<span class="muted">Niezalogowany — baza partii wymaga konta Lichess (darmowe).</span>`;
+  $("#li-status").innerHTML = u ? t("Zalogowany jako <b>{user}</b> ✓", { user: esc(u) }) : `<span class="muted">${t("Niezalogowany — baza partii wymaga konta Lichess (darmowe).")}</span>`;
   $("#li-login").hidden = !!u;
   $("#li-logout").hidden = !u;
   $("#li-ratings").value = settings().liRatings || "1800,2000,2200,2500";
@@ -1328,7 +1330,7 @@ function renderEvaluation(fen, node, box, isCurrent, interactive) {
       return `<${tag} class="eval-line"${interactive ? ` data-ev="${first}"` : ""}><span class="eval-score">${scoreText(l)}</span><span class="eval-pv">${txt}</span>${inRep.has(first) ? `<span class="pill ok" title="ruch jest w repertuarze">✓</span>` : ""}</${tag}>`;
     });
     box.innerHTML =
-      `<span class="eval-src">${esc(res.source)}${res.depth ? `, głębokość ${res.depth}` : ""}${res.pending ? " — liczę…" : ""}</span>` +
+      `<span class="eval-src">${esc(t(res.source))}${res.depth ? t(", głębokość {n}", { n: res.depth }) : ""}${res.pending ? t(" — liczę…") : ""}</span>` +
       (lines.join("") || "");
   });
 }
@@ -1339,11 +1341,11 @@ function browseDelete(uci) {
   const e = rep.nodes[key].moves[uci];
   const p = deletePreview(rep, key, uci);
   const n = p.moves - 1;
-  const word = n === 1 ? "dalszy ruch" : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? "dalsze ruchy" : "dalszych ruchów";
-  const more = n > 0 ? ` i ${n} ${word} (Twoich: ${p.userMoves}${p.learned ? `, w tym poznanych: ${p.learned}` : ""})` : "";
-  if (!confirm(`Usunąć ${e.san}${more}?\n\nPozycje osiągalne inną kolejnością ruchów zostaną.`)) return;
+  const word = t(n === 1 ? "dalszy ruch" : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? "dalsze ruchy" : "dalszych ruchów");
+  const more = n > 0 ? t(" i {n} {word} (Twoich: {user}{learned})", { n, word, user: p.userMoves, learned: p.learned ? t(", w tym poznanych: {n}", { n: p.learned }) : "" }) : "";
+  if (!confirm(t("Usunąć {san}{more}?\n\nPozycje osiągalne inną kolejnością ruchów zostaną.", { san: e.san, more }))) return;
   deleteMove(rep, key, uci);
-  toast(`Usunięto ${e.san}`);
+  toast(t("Usunięto {san}", { san: e.san }));
   renderBrowse();
 }
 
@@ -1398,7 +1400,7 @@ function renderStats() {
   const reps = store.data.reps;
   const sel = $("#s-rep");
   const prev = sel.value;
-  sel.innerHTML = `<option value="">Wszystkie</option>` + reps.map((r) => `<option value="${r.id}">${esc(r.name)}</option>`).join("");
+  sel.innerHTML = `<option value="">Wszystkie</option>` + reps.map((r) => `<option value="${r.id}" data-no-i18n>${esc(r.name)}</option>`).join("");
   sel.value = reps.some((r) => r.id === prev) ? prev : "";
   const chosen = sel.value ? [store.rep(sel.value)] : reps;
   const ids = new Set(chosen.map((r) => r.id));
@@ -1440,14 +1442,14 @@ function renderStats() {
     ["Nowe", tot.fresh],
     ["Skuteczność (30 dni)", acc === null ? "—" : acc + "%"],
     ["Dni z rzędu", streak],
-  ].map(([k, v]) => `<div class="tile"><div class="tile-v">${v}</div><div class="tile-k">${k}</div></div>`).join("");
+  ].map(([k, v]) => `<div class="tile"><div class="tile-v">${v}</div><div class="tile-k">${t(k)}</div></div>`).join("");
 
-  const dn = (d) => d.toLocaleDateString("pl-PL", { weekday: "short" });
+  const dn = (d) => d.toLocaleDateString(getLang() === "en" ? "en-GB" : "pl-PL", { weekday: "short" });
   const maxF = Math.max(1, ...fc);
   $("#s-forecast").innerHTML = fc
     .map((v, i) => {
       const d = new Date(today0 + i * DAY);
-      return `<div class="col" title="${v}"><span class="v">${v || ""}</span><div class="b" style="height:${(100 * v) / maxF}%"></div><span class="k">${i === 0 ? "dziś" : i === 1 ? "jutro" : dn(d) + " " + d.getDate()}</span></div>`;
+      return `<div class="col" title="${v}"><span class="v">${v || ""}</span><div class="b" style="height:${(100 * v) / maxF}%"></div><span class="k">${i === 0 ? t("dziś") : i === 1 ? t("jutro") : dn(d) + " " + d.getDate()}</span></div>`;
     })
     .join("");
 
@@ -1459,7 +1461,7 @@ function renderStats() {
     .join("");
 
   $("#s-weak").innerHTML = weak.length
-    ? weak.map((w) => `<li><b>${esc(w.san)}</b> — błędy: ${w.srs.lapses}, następna powtórka ${whenText(w.srs.due)}<div class="muted small">${esc(w.srs.line || "")}${chosen.length > 1 ? " · " + esc(w.rep.name) : ""}</div></li>`).join("")
+    ? weak.map((w) => `<li>${t("{san} — błędy: {n}, następna powtórka {when}", { san: `<b>${esc(w.san)}</b>`, n: w.srs.lapses, when: whenText(w.srs.due) })}<div class="muted small">${esc(w.srs.line || "")}${chosen.length > 1 ? " · " + esc(w.rep.name) : ""}</div></li>`).join("")
     : `<li class="muted">Brak błędów — albo jeszcze nic nie powtarzałeś.</li>`;
 }
 
@@ -1468,7 +1470,8 @@ function renderStats() {
 function renderSettings() {
   const s = settings();
   renderLichess();
-  $("#set-version").textContent = `Wersja aplikacji: ${VERSION}`;
+  $("#set-version").textContent = t("Wersja aplikacji: {v}", { v: VERSION });
+  $("#set-lang").value = getLang();
   $("#set-new").value = s.newPerSession || 10;
   $("#set-pause").value = s.pauseAfterLine || "error";
   $("#set-sound").checked = s.sound !== false;
@@ -1494,10 +1497,10 @@ function renderPeg() {
     : st === "lost" ? "!"
     : "+";
   const description = st === "on"
-    ? `${name}: ${hasBattery ? `bateria ${label}` : "odczytuję stan baterii"}. Rozłącz planszę`
-    : st === "connecting" ? "Łączę z planszą DGT Pegasus"
-    : st === "lost" ? "Utracono połączenie z planszą. Łączę ponownie"
-    : "Połącz planszę DGT Pegasus";
+    ? (hasBattery ? t("{name}: bateria {label}. Rozłącz planszę", { name, label }) : t("{name}: odczytuję stan baterii. Rozłącz planszę", { name }))
+    : st === "connecting" ? t("Łączę z planszą DGT Pegasus")
+    : st === "lost" ? t("Utracono połączenie z planszą. Łączę ponownie")
+    : t("Połącz planszę DGT Pegasus");
   $("#peg-label").textContent = label;
   el.setAttribute("aria-label", description);
   el.title = description;
@@ -1506,7 +1509,7 @@ function renderPeg() {
 
 function pegLog(msg, tone = "") {
   const li = document.createElement("li");
-  li.textContent = msg;
+  li.textContent = t(msg);
   if (tone) li.dataset.tone = tone;
   $("#peg-log").append(li);
 }
@@ -1521,7 +1524,7 @@ const BT_ERRORS = {
 
 async function onPegClick() {
   if (peg.state === "on" || peg.state === "lost") {
-    if (confirm("Rozłączyć planszę?")) peg.disconnect();
+    if (confirm(t("Rozłączyć planszę?"))) peg.disconnect();
     return;
   }
   const dlg = $("#peg-dialog");
@@ -1534,14 +1537,14 @@ async function onPegClick() {
     else if (/Firefox|FxiOS/.test(ua)) pegLog("Firefox nie obsługuje Bluetooth — otwórz ten adres w Google Chrome.", "bad");
     else if (!isSecureContext) pegLog("Strona nie jest otwarta przez https.", "bad");
     else pegLog("Otwórz ten adres w Google Chrome na Androidzie (aktualna wersja).", "bad");
-    pegLog(`Przeglądarka: ${ua}`, "muted");
+    pegLog(t("Przeglądarka: {ua}", { ua }), "muted");
     return;
   }
   try {
     await peg.pick();
     setTimeout(() => dlg.open && dlg.close(), 1200);
   } catch (e) {
-    pegLog(BT_ERRORS[e.name] || `Błąd: ${e.message || e}`, "bad");
+    pegLog(BT_ERRORS[e.name] || t("Błąd: {msg}", { msg: e.message || e }), "bad");
     pegLog(`(${e.name}: ${e.message})`, "muted");
     try {
       if (navigator.bluetooth.getAvailability && !(await navigator.bluetooth.getAvailability()))
@@ -1556,6 +1559,10 @@ async function onPegClick() {
 
 async function main() {
   await store.load();
+  // dotychczasowi użytkownicy (aplikacja była tylko po polsku) zostają przy polskim
+  if (!settings().lang) { settings().lang = store.data.reps.length ? "pl" : defaultLang(); store.save(); }
+  setLang(settings().lang);
+  translateDom();
   peg.rotated = !!settings().rotated;
 
   trainBoard = new BoardView($("#t-board"));
@@ -1567,7 +1574,7 @@ async function main() {
   $("nav").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-view]");
     if (!b) return;
-    if (trainer.running && !confirm("Przerwać trening?")) return;
+    if (trainer.running && !confirm(t("Przerwać trening?"))) return;
     if (trainer.running) trainer.abort();
     go(b.dataset.view);
   });
@@ -1690,7 +1697,7 @@ async function main() {
     try {
       const u = await lichess.setToken(t);
       $("#li-token").value = "";
-      toast(`Zalogowano jako ${u}`);
+      toast(t("Zalogowano jako {user}", { user: u }));
     } catch (err) {
       alert(err.message);
     }
@@ -1709,13 +1716,13 @@ async function main() {
   setHdr();
   addEventListener("resize", setHdr);
   $("#imp-empty").addEventListener("click", () => {
-    const name = $("#imp-name").value.trim() || "Nowy repertuar";
+    const name = $("#imp-name").value.trim() || t("Nowy repertuar");
     let color = $("#imp-color").value;
     if (color === "auto") color = "w";
     const rep = emptyRep(name, color);
     $("#imp-name").value = "";
     openBrowse(rep);
-    toast("Pusty repertuar — wykonuj ruchy na szachownicy, żeby je dodać");
+    toast(t("Pusty repertuar — wykonuj ruchy na szachownicy, żeby je dodać"));
   });
   $("#b-back").addEventListener("click", () => { browse.path.pop(); renderBrowse(); });
   $("#b-focus").addEventListener("click", () => {
@@ -1723,12 +1730,12 @@ async function main() {
     const { sans } = browseState();
     if (!browse.path.length) return;
     const line = lineText(rep.nodes[browse.root].fen, sans);
-    const name = prompt("Nazwa fokusu (pojawi się pod repertuarem na stronie głównej):", line);
+    const name = prompt(t("Nazwa fokusu (pojawi się pod repertuarem na stronie głównej):"), line);
     if (name === null) return;
     (rep.focus ||= []).push({ id: "f" + Date.now().toString(36), name: name.trim() || line, root: browse.root, path: [...browse.path], sans });
     store.save();
     go("home");
-    toast(`Fokus „${name.trim() || line}” jest pod repertuarem „${rep.name}”.`);
+    toast(t("Fokus „{name}” jest pod repertuarem „{rep}”.", { name: name.trim() || line, rep: rep.name }));
   });
   $("#b-start").addEventListener("click", () => { browse.path = []; renderBrowse(); });
   $("#b-roots").addEventListener("change", (e) => { browse.root = e.target.value; browse.path = []; renderBrowse(); });
@@ -1737,6 +1744,11 @@ async function main() {
 
   $("#set-new").addEventListener("change", (e) => { settings().newPerSession = Math.max(1, Math.min(50, Number(e.target.value) || 10)); store.save(); });
   $("#set-pause").addEventListener("change", (e) => { settings().pauseAfterLine = e.target.value; store.save(); });
+  $("#set-lang").addEventListener("change", async (e) => {
+    settings().lang = e.target.value;
+    await store.saveNow();
+    location.reload();
+  });
   $("#set-sound").addEventListener("change", (e) => { settings().sound = e.target.checked; store.save(); });
   $("#set-hintleds").addEventListener("change", (e) => { settings().hintLeds = e.target.checked; store.save(); });
   $("#set-rotated").addEventListener("change", (e) => {
@@ -1753,13 +1765,13 @@ async function main() {
     if (!f) return;
     try {
       const d = validateBackup(JSON.parse(await f.text()));
-      if (!confirm(`Przywrócić kopię (${d.reps.length} repertuarów)? Obecne dane zostaną zastąpione.`)) return;
+      if (!confirm(t("Przywrócić kopię ({n} repertuarów)? Obecne dane zostaną zastąpione.", { n: d.reps.length }))) return;
       store.data = { reps: [], log: [], settings: {}, ...d };
       await store.saveNow();
-      alert("Przywrócono.");
+      alert(t("Przywrócono."));
       go("home");
     } catch (err) {
-      alert("Nie udało się: " + err.message);
+      alert(t("Nie udało się: ") + err.message);
     }
     e.target.value = "";
   });
@@ -1785,10 +1797,10 @@ async function main() {
   go("home");
   lichess.handleRedirect().then((done) => {
     if (!done) return;
-    toast(`Zalogowano do Lichess jako ${lichess.user()}`);
+    toast(t("Zalogowano do Lichess jako {user}", { user: lichess.user() }));
     go("settings");
   }).catch((err) => {
-    alert("Logowanie do Lichess nie powiodło się: " + err.message);
+    alert(t("Logowanie do Lichess nie powiodło się: ") + err.message);
     go("settings");
   });
   window.__app = { peg, trainer }; // do diagnostyki z konsoli

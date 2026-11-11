@@ -1,6 +1,7 @@
 // Sterownik DGT Pegasus przez Web Bluetooth (Nordic UART).
 // Protokół: https://dgtcentaurmods.github.io/pegasus-protocol (nieoficjalny),
 // sprawdzony na planszy „Pegasus Alutka” — patrz ../NOTATKI.md.
+import { t } from "./i18n.js";
 
 const NUS = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const RX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; // zapis: tablet -> plansza
@@ -64,12 +65,12 @@ export class Pegasus extends EventTarget {
 
   /** Wybór planszy (wymaga gestu użytkownika). */
   async pick() {
-    this.log("Otwieram listę urządzeń Bluetooth…");
+    this.log(t("Otwieram listę urządzeń Bluetooth…"));
     const dev = await navigator.bluetooth.requestDevice({
       filters: [{ services: [NUS] }, { namePrefix: "Pegasus" }, { namePrefix: "DGT" }],
       optionalServices: [NUS],
     });
-    this.log(`Wybrano: ${dev.name || "(bez nazwy)"}`);
+    this.log(t("Wybrano: {name}", { name: dev.name || t("(bez nazwy)") }));
     if (this.device !== dev) {
       this.device = dev;
       dev.addEventListener("gattserverdisconnected", () => {
@@ -107,15 +108,15 @@ export class Pegasus extends EventTarget {
     // Odczyt sprzed rozłączenia nie opisuje już bieżącej pozycji planszy.
     this.occ = null;
     const timeout = (p, ms, what) => new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`${what}: brak odpowiedzi po ${ms / 1000} s`)), ms);
+      const timer = setTimeout(() => reject(new Error(t("{what}: brak odpowiedzi po {s} s", { what: t(what), s: ms / 1000 }))), ms);
       Promise.resolve(p).then(
         (value) => { clearTimeout(timer); resolve(value); },
         (error) => { clearTimeout(timer); reject(error); }
       );
     });
-    this.log("Łączę z planszą…");
+    this.log(t("Łączę z planszą…"));
     const server = await timeout(this.device.gatt.connect(), 20000, "Połączenie");
-    this.log("Połączono, szukam usługi UART…");
+    this.log(t("Połączono, szukam usługi UART…"));
     const svc = await timeout(server.getPrimaryService(NUS), 10000, "Usługa UART");
     this.rx = await svc.getCharacteristic(RX);
     const tx = await svc.getCharacteristic(TX);
@@ -126,12 +127,12 @@ export class Pegasus extends EventTarget {
       this._txBound = tx;
     }
     this.buf = [];
-    this.log("Wysyłam klucz i włączam powiadomienia o polach…");
+    this.log(t("Wysyłam klucz i włączam powiadomienia o polach…"));
     for (const cmd of [DEV_KEY, RESET, FIELD_UPDATES, LEDS_OFF]) await this.send(cmd, 120);
     const snapshot = this._awaitSnapshot(5000);
     await this.dump();
     await snapshot;
-    this.log("Gotowe ✓");
+    this.log(t("Gotowe ✓"));
     this._setState("on", { name: this.device.name });
     await this._writeLeds(this._ledState.squares, this._ledState.options);
     this.readBattery();
@@ -142,7 +143,7 @@ export class Pegasus extends EventTarget {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.removeEventListener("snapshot", onSnapshot);
-        reject(new Error("Plansza nie przesłała stanu pól. Wyłącz i włącz ją, a potem połącz ponownie."));
+        reject(new Error(t("Plansza nie przesłała stanu pól. Wyłącz i włącz ją, a potem połącz ponownie.")));
       }, ms);
       const onSnapshot = () => {
         clearTimeout(timer);

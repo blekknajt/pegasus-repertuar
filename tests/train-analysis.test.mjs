@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { Chess } from "../lib/chess.js";
+import { t } from "../i18n.js";
 
 class FakePeg extends EventTarget {
   constructor() { super(); this.state = "on"; this.occ = null; }
@@ -41,6 +42,7 @@ function load() {
   const context = vm.createContext({
     Chess, Pegasus: FakePeg, BoardView: FakeBoard,
     Engine: class { constructor() { this.job = 0; } stopLocal() {} },
+    t, getLang: () => "pl",
     store: { data: { settings: {} }, save() {}, logReview() {} }, posKey: () => "none", lineText: (_fen, moves) => moves.join(" "),
     document, setTimeout, clearTimeout, console, Event, EventTarget, navigator: {}, window: {},
   });

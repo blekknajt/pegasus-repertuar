@@ -146,3 +146,16 @@ test("fokus: linie przechodzą przez wybraną pozycję, cele tylko za nią", () 
   assert.equal(focusKey(rep, focus), null);
   assert.equal(buildLine(rep, "drill", { focus }), null);
 });
+
+test("tłumaczenie: angielski ze zmiennymi, brak wpisu zostaje po polsku", async () => {
+  const { t, setLang } = await import("../i18n.js");
+  setLang("en");
+  try {
+    assert.equal(t("Zagraj: {san}", { san: "Nf3" }), "Play: Nf3");
+    assert.equal(t("Tekst bez tłumaczenia"), "Tekst bez tłumaczenia");
+    assert.equal(t("za {n} dni", { n: 3 }), "in 3 days");
+  } finally {
+    setLang("pl");
+  }
+  assert.equal(t("Zagraj: {san}", { san: "Nf3" }), "Zagraj: Nf3");
+});

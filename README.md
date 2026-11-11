@@ -22,7 +22,8 @@ bez planszy, wykonując ruchy na ekranie.
 - pauza po linii (nigdy / po błędzie / zawsze), żeby spokojnie przeanalizować pomyłkę,
 - **fokusy** — ćwiczenie wycinka repertuaru od wybranej pozycji (np. tylko przyjęty gambit
   Smith-Morra): powtórki, nowe ruchy albo przegląd całości; postępy są wspólne z całym repertuarem,
-- praca offline (PWA), kopia zapasowa do pliku.
+- praca offline (PWA), kopia zapasowa do pliku,
+- interfejs po polsku i angielsku (wybór w Ustawieniach).
 
 Dane zostają w przeglądarce urządzenia (IndexedDB). Oceny silnika i odpowiedzi bazy partii
 są tam również zapamiętywane — raz odwiedzona pozycja działa potem bez sieci.
@@ -44,7 +45,7 @@ Opening repertoire trainer with spaced repetition for the physical **DGT Pegasus
 connected over Web Bluetooth — works in Chrome on Android. You can also train without the
 board by making moves on the screen.
 
-> The app interface is currently in Polish only.
+> The app is available in English and Polish — switch the language in Settings.
 
 ### Features
 

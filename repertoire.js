@@ -1,5 +1,6 @@
 // Repertuar: drzewo pozycji, import PGN (z wariantami), powtórki (SRS), dobór linii.
 import { Chess } from "./lib/chess.js";
+import { t } from "./i18n.js";
 
 export const DAY = 86400000;
 export const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
@@ -97,30 +98,30 @@ export const store = {
 export function validateBackup(data) {
   if (!data || !Array.isArray(data.reps) || !Array.isArray(data.log) ||
       !data.settings || typeof data.settings !== "object" || Array.isArray(data.settings)) {
-    throw new Error("To nie jest poprawna kopia zapasowa tej aplikacji.");
+    throw new Error(t("To nie jest poprawna kopia zapasowa tej aplikacji."));
   }
   for (const rep of data.reps) {
     if (!rep || typeof rep.id !== "string" || typeof rep.name !== "string" ||
         !["w", "b"].includes(rep.color) || !Array.isArray(rep.roots) ||
         !rep.nodes || typeof rep.nodes !== "object" || Array.isArray(rep.nodes)) {
-      throw new Error("Kopia zawiera uszkodzony repertuar.");
+      throw new Error(t("Kopia zawiera uszkodzony repertuar."));
     }
     for (const key of rep.roots) {
-      if (!Object.hasOwn(rep.nodes, key)) throw new Error("Kopia zawiera brakującą pozycję startową.");
+      if (!Object.hasOwn(rep.nodes, key)) throw new Error(t("Kopia zawiera brakującą pozycję startową."));
     }
     if (rep.focus !== undefined && (!Array.isArray(rep.focus) ||
         rep.focus.some((f) => !f || typeof f.id !== "string" || typeof f.root !== "string" || !Array.isArray(f.path)))) {
-      throw new Error("Kopia zawiera uszkodzony fokus.");
+      throw new Error(t("Kopia zawiera uszkodzony fokus."));
     }
     for (const node of Object.values(rep.nodes)) {
       if (!node || typeof node.fen !== "string" || !node.moves ||
           typeof node.moves !== "object" || Array.isArray(node.moves)) {
-        throw new Error("Kopia zawiera uszkodzoną pozycję.");
+        throw new Error(t("Kopia zawiera uszkodzoną pozycję."));
       }
       for (const edge of Object.values(node.moves)) {
         if (!edge || typeof edge.san !== "string" || typeof edge.to !== "string" ||
             !Object.hasOwn(rep.nodes, edge.to)) {
-          throw new Error("Kopia zawiera ruch bez dalszej pozycji.");
+          throw new Error(t("Kopia zawiera ruch bez dalszej pozycji."));
         }
       }
     }
@@ -248,10 +249,10 @@ export function importPgn(rep, text) {
   };
 
   for (const [gi, game] of games.entries()) {
-    const label = game.headers.ChapterName ? `„${game.headers.ChapterName}”` : `partia ${gi + 1}`;
+    const label = game.headers.ChapterName ? `„${game.headers.ChapterName}”` : t("partia {n}", { n: gi + 1 });
     const variant = game.headers.Variant;
     if (variant && !/^(standard|from position)$/i.test(variant)) {
-      errors.push(`${label}: odmiana ${variant} — pomijam`);
+      errors.push(t("{label}: odmiana {variant} — pomijam", { label, variant }));
       continue;
     }
     const startFen = game.headers.FEN || START_FEN;
@@ -259,7 +260,7 @@ export function importPgn(rep, text) {
     try {
       chess = new Chess(startFen);
     } catch {
-      errors.push(`${label}: błędna pozycja startowa (FEN)`);
+      errors.push(t("{label}: błędna pozycja startowa (FEN)", { label }));
       continue;
     }
     const rootKey = posKey(chess.fen());
@@ -294,7 +295,7 @@ export function importPgn(rep, text) {
           mv = null;
         }
         if (!mv) {
-          errors.push(`${label}: nielegalny ruch „${tk.v}” — reszta wariantu pominięta`);
+          errors.push(t("{label}: nielegalny ruch „{move}” — reszta wariantu pominięta", { label, move: tk.v }));
           cur.dead = true;
           continue;
         }
@@ -337,13 +338,13 @@ export function inferColor(rep) {
 /** Pobiera PGN studium (lub rozdziału) z Lichess. */
 export async function fetchLichessStudy(url) {
   const m = url.match(/lichess\.org\/study\/([A-Za-z0-9]{8})(?:\/([A-Za-z0-9]{8}))?/);
-  if (!m) throw new Error("To nie wygląda na link do studium Lichess (lichess.org/study/…)");
+  if (!m) throw new Error(t("To nie wygląda na link do studium Lichess (lichess.org/study/…)"));
   const api = m[2]
     ? `https://lichess.org/api/study/${m[1]}/${m[2]}.pgn?comments=true&variations=true&clocks=false`
     : `https://lichess.org/api/study/${m[1]}.pgn?comments=true&variations=true&clocks=false`;
   const r = await fetch(api);
-  if (r.status === 404) throw new Error("Nie znaleziono studium — czy jest publiczne lub „niepubliczne” (nie prywatne)?");
-  if (!r.ok) throw new Error(`Lichess odpowiedział błędem ${r.status}`);
+  if (r.status === 404) throw new Error(t("Nie znaleziono studium — czy jest publiczne lub „niepubliczne” (nie prywatne)?"));
+  if (!r.ok) throw new Error(t("Lichess odpowiedział błędem {status}", { status: r.status }));
   return r.text();
 }
 
