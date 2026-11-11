@@ -84,6 +84,7 @@ header {
 nav { display: flex; gap: 2px; flex: 1; min-width: 0; overflow-x: auto; }
 header nav button { background: none; border: 0; color: var(--muted); padding: 6px 8px; font-size: .8rem; font-variant-caps: small-caps; letter-spacing: .02em; white-space: nowrap; }
 nav button.active { color: var(--text); background: var(--surface-2); }
+header nav .lang-flag { font-size: 1.15rem; line-height: 1; padding: 4px 6px; font-variant-caps: normal; }
 
 #peg-btn { flex: none; min-width: 44px; padding: 6px 9px; white-space: nowrap; font-size: .85rem; font-weight: 700; }
 #peg-btn .peg-board-icon { width: 20px; height: 20px; flex: none; border: 2px solid currentColor; border-radius: 2px; background: conic-gradient(currentColor 25%, transparent 0 50%, currentColor 0 75%, transparent 0) 0 0 / 8px 8px; }

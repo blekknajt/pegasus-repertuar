@@ -10,7 +10,7 @@ import {
   addMove, deleteMove, deletePreview, emptyRep, validateBackup,
 } from "./repertoire.js";
 
-const VERSION = "2026-11-11 c";
+const VERSION = "2026-11-11 d";
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -1471,7 +1471,6 @@ function renderSettings() {
   const s = settings();
   renderLichess();
   $("#set-version").textContent = t("Wersja aplikacji: {v}", { v: VERSION });
-  $("#set-lang").value = getLang();
   $("#set-new").value = s.newPerSession || 10;
   $("#set-pause").value = s.pauseAfterLine || "error";
   $("#set-sound").checked = s.sound !== false;
@@ -1744,8 +1743,16 @@ async function main() {
 
   $("#set-new").addEventListener("change", (e) => { settings().newPerSession = Math.max(1, Math.min(50, Number(e.target.value) || 10)); store.save(); });
   $("#set-pause").addEventListener("change", (e) => { settings().pauseAfterLine = e.target.value; store.save(); });
-  $("#set-lang").addEventListener("change", async (e) => {
-    settings().lang = e.target.value;
+  // flaga pokazuje język, na który się przełączy
+  const other = getLang() === "en" ? "pl" : "en";
+  const langBtn = $("#lang-btn");
+  langBtn.textContent = other === "en" ? "🇬🇧" : "🇵🇱";
+  langBtn.title = other === "en" ? "English" : "Polski";
+  langBtn.setAttribute("aria-label", other === "en" ? "Switch to English" : "Przełącz na polski");
+  langBtn.addEventListener("click", async () => {
+    if (trainer.running && !confirm(t("Przerwać trening?"))) return;
+    if (trainer.running) trainer.abort();
+    settings().lang = other;
     await store.saveNow();
     location.reload();
   });

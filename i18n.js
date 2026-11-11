@@ -317,7 +317,6 @@ const EN = {
   "Brak błędów — albo jeszcze nic nie powtarzałeś.": "No mistakes — or you haven't reviewed anything yet.",
 
   // ustawienia
-  "Język": "Language",
   "Plansza DGT Pegasus": "DGT Pegasus board",
   "Plansza obrócona o 180° (fabryczne rzędy 7–8 przy mnie)": "Board rotated 180° (factory ranks 7–8 on my side)",
   "Po obróceniu nadruki liter i cyfr na planszy nie pasują do pól — kieruj się diodami. Do gry czarnymi nie trzeba obracać: wystarczy repertuar czarnych, ekran sam pokaże czarne na dole.": "When rotated, the printed letters and numbers don't match the squares — follow the LEDs. You don't need to rotate it to play black: a black repertoire is enough, the screen will show black at the bottom.",
