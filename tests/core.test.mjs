@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { Pegasus } from "../pegasus.js";
-import { importPgn, inferColor, counts, store, posKey, deleteMove, validateBackup } from "../repertoire.js";
+import { importPgn, inferColor, counts, store, posKey, deleteMove, validateBackup, buildLine, focusKey, subtree, grade, START_FEN } from "../repertoire.js";
 
 const initial = () => ({ roots: [], nodes: {}, color: "w" });
 
@@ -111,4 +111,38 @@ test("przywracanie odrzuca uszkodzoną kopię przed zmianą danych", () => {
   assert.equal(validateBackup(backup), backup);
   delete rep.nodes[Object.values(rep.nodes[rep.roots[0]].moves)[0].to];
   assert.throws(() => validateBackup(backup), /ruch bez dalszej pozycji/);
+});
+
+test("fokus: linie przechodzą przez wybraną pozycję, cele tylko za nią", () => {
+  store.save = () => {};
+  const rep = initial();
+  importPgn(rep, "1. e4 c5 (1... e5 2. Nf3) 2. d4 cxd4 3. c3 dxc3 (3... d3 4. Bxd3) 4. Nxc3 Nc6 5. Nf3 *");
+  const root = posKey(START_FEN);
+  const morra = ["e2e4", "c7c5", "d2d4", "c5d4", "c2c3", "d4c3"];
+  const focus = { id: "f", name: "Morra przyjęty", root, path: morra };
+  const key = focusKey(rep, focus);
+  assert.ok(key);
+  const keys = subtree(rep, key);
+  assert.equal(counts(rep, Date.now(), keys).total, 2, "Nxc3 i Nf3");
+  assert.equal(counts(rep).total, 7);
+
+  const line = buildLine(rep, "learn", { focus });
+  assert.deepEqual(line.steps.map((s) => s.san), ["e4", "c5", "d4", "cxd4", "c3", "dxc3", "Nxc3", "Nc6", "Nf3"]);
+  assert.deepEqual(line.steps.filter((s) => s.target).map((s) => s.san), ["Nxc3", "Nf3"]);
+
+  // nic nowego za fokusem → brak linii, choć gdzie indziej są nowe ruchy
+  for (const s of line.steps) if (s.target) grade(s.edge, true);
+  assert.equal(buildLine(rep, "learn", { focus }), null);
+  assert.ok(buildLine(rep, "learn"));
+  // przegląd całości bierze poznane ruchy bez względu na termin
+  assert.equal(buildLine(rep, "review", { focus }), null);
+  const drill = buildLine(rep, "drill", { focus });
+  assert.deepEqual(drill.steps.filter((s) => s.target).map((s) => s.san), ["Nxc3", "Nf3"]);
+  const done = new Set(drill.steps.filter((s) => s.target).map((s) => s.fen + s.uci));
+  assert.equal(buildLine(rep, "drill", { focus, exclude: done }), null);
+
+  // usunięty ruch na ścieżce — fokus nieaktualny
+  deleteMove(rep, Object.keys(rep.nodes).find((k) => rep.nodes[k].moves.c2c3), "c2c3");
+  assert.equal(focusKey(rep, focus), null);
+  assert.equal(buildLine(rep, "drill", { focus }), null);
 });

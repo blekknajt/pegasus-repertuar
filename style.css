@@ -150,6 +150,10 @@ fieldset.seg label:has(input:checked) { border-color: var(--accent); background:
 .color-dot.b { background: #222; }
 .bar { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; margin-bottom: 6px; }
 .bar span { display: block; height: 100%; background: var(--primary); }
+.focus { margin-top: 10px; padding: 10px 12px; border-left: 3px solid var(--accent); background: var(--surface-2); border-radius: 10px; }
+.focus-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.focus .row { margin-top: 8px; }
+.focus-head .focus-del { margin-left: auto; padding: 4px 10px; }
 .more-menu { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
 .more-menu[hidden] { display: none; }
 .add-card { min-height: 140px; border-style: dashed; color: var(--muted); font-size: 1.05rem; }

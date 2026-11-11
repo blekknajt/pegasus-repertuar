@@ -108,6 +108,10 @@ export function validateBackup(data) {
     for (const key of rep.roots) {
       if (!Object.hasOwn(rep.nodes, key)) throw new Error("Kopia zawiera brakującą pozycję startową.");
     }
+    if (rep.focus !== undefined && (!Array.isArray(rep.focus) ||
+        rep.focus.some((f) => !f || typeof f.id !== "string" || typeof f.root !== "string" || !Array.isArray(f.path)))) {
+      throw new Error("Kopia zawiera uszkodzony fokus.");
+    }
     for (const node of Object.values(rep.nodes)) {
       if (!node || typeof node.fen !== "string" || !node.moves ||
           typeof node.moves !== "object" || Array.isArray(node.moves)) {
@@ -416,10 +420,35 @@ export function markLearned(edge, line) {
   edge.srs = { ivl: 0, ease: 2.5, reps: 0, lapses: 0, due: Date.now(), line, learned: Date.now() };
 }
 
-/** Liczniki: ruchy użytkownika, poznane, do powtórki, nowe. */
-export function counts(rep, now = Date.now()) {
+/** Pozycja, do której prowadzi fokus {root, path: [uci…]}; null, jeśli którego ruchu już nie ma. */
+export function focusKey(rep, focus) {
+  let key = focus.root;
+  for (const u of focus.path) {
+    const e = rep.nodes[key]?.moves[u];
+    if (!e) return null;
+    key = e.to;
+  }
+  return rep.nodes[key] ? key : null;
+}
+
+/** Klucze pozycji osiągalnych z `key` (razem z nią). */
+export function subtree(rep, key) {
+  const seen = new Set();
+  const stack = [key];
+  while (stack.length) {
+    const k = stack.pop();
+    if (seen.has(k) || !rep.nodes[k]) continue;
+    seen.add(k);
+    for (const e of Object.values(rep.nodes[k].moves)) stack.push(e.to);
+  }
+  return seen;
+}
+
+/** Liczniki: ruchy użytkownika, poznane, do powtórki, nowe. `keys` — tylko te pozycje (fokus). */
+export function counts(rep, now = Date.now(), keys = null) {
   let total = 0, due = 0, fresh = 0;
-  for (const node of Object.values(rep.nodes)) {
+  for (const [key, node] of Object.entries(rep.nodes)) {
+    if (keys && !keys.has(key)) continue;
     if (!isUserNode(rep, node)) continue;
     for (const e of Object.values(node.moves)) {
       total++;
@@ -432,13 +461,18 @@ export function counts(rep, now = Date.now()) {
 
 /**
  * Buduje linię do treningu.
- *  mode 'review' — cele: ruchy do powtórki; 'learn' — cele: nowe ruchy (max limit).
+ *  mode 'review' — cele: ruchy do powtórki; 'learn' — cele: nowe ruchy (max limit);
+ *  'drill' — cele: wszystkie poznane ruchy (bez względu na termin; wykonane podaje się w `exclude`).
  *  prefer — poprzednia linia (lista uci), żeby nowa zaczynała się od wspólnego odcinka.
+ *  focus — {root, path}: linia idzie przez tę pozycję, a cele są tylko za nią.
  * Zwraca {root, steps: [{key, fen, uci, san, user, target, comment, shapes}]} albo null.
  */
-export function buildLine(rep, mode, { prefer = [], preferRoot = null, limit = Infinity, now = Date.now(), exclude = new Set() } = {}) {
+export function buildLine(rep, mode, { prefer = [], preferRoot = null, limit = Infinity, now = Date.now(), exclude = new Set(), focus = null } = {}) {
   const isTarget = (node, uci, e) =>
-    isUserNode(rep, node) && !exclude.has(node.fen + uci) && (mode === "review" ? isDue(e, now) : isNew(e));
+    isUserNode(rep, node) && !exclude.has(node.fen + uci) &&
+    (mode === "review" ? isDue(e, now) : mode === "drill" ? !isNew(e) : isNew(e));
+  const fkey = focus && focusKey(rep, focus);
+  if (focus && !fkey) return null;
 
   const memo = new Map();
   const dueIn = (key, visiting = new Set()) => {
@@ -459,7 +493,7 @@ export function buildLine(rep, mode, { prefer = [], preferRoot = null, limit = I
   };
 
   const roots = [...rep.roots].sort((a, b) => (a === preferRoot ? -1 : b === preferRoot ? 1 : 0));
-  const root = roots.find((r) => dueIn(r) > 0);
+  const root = focus ? (dueIn(fkey) > 0 ? focus.root : null) : roots.find((r) => dueIn(r) > 0);
   if (!root) return null;
 
   const steps = [];
@@ -470,6 +504,13 @@ export function buildLine(rep, mode, { prefer = [], preferRoot = null, limit = I
     const node = rep.nodes[key];
     if (!node || seen.has(key)) break;
     seen.add(key);
+    if (focus && i < focus.path.length) {
+      // dojście do pozycji fokusu — bez ocen
+      const uci = focus.path[i], e = node.moves[uci];
+      steps.push({ key, fen: node.fen, uci, san: e.san, user: isUserNode(rep, node), target: false, edge: e });
+      key = e.to;
+      continue;
+    }
     const cands = Object.entries(node.moves).filter(
       ([uci, e]) => isTarget(node, uci, e) || dueIn(e.to) > 0
     );

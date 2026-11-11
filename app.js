@@ -5,11 +5,11 @@ import { Engine, scoreText } from "./engine.js";
 import { lichess, explore } from "./lichess.js";
 import {
   store, importPgn, inferColor, fetchLichessStudy, exportPgn, buildLine, grade, markLearned, counts,
-  forecast, weakest, lineText, isUserNode, posKey, START_FEN, DAY,
+  forecast, weakest, lineText, isUserNode, posKey, START_FEN, DAY, focusKey, subtree,
   addMove, deleteMove, deletePreview, emptyRep, validateBackup,
 } from "./repertoire.js";
 
-const VERSION = "2026-11-11 a";
+const VERSION = "2026-11-11 b";
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -138,9 +138,15 @@ class Trainer {
     $("#t-line").textContent = sans.length ? lineText(rootFen, sans) : "(pozycja wyjściowa)";
   }
 
+  /** Liczniki repertuaru albo — przy treningu fokusu — tylko jego wycinka. */
+  counts() {
+    const key = this.focus && focusKey(this.rep, this.focus);
+    return counts(this.rep, Date.now(), this.focus ? subtree(this.rep, key) : null);
+  }
+
   renderStats() {
     const s = this.stats;
-    const c = counts(this.rep);
+    const c = this.counts();
     $("#t-progress").innerHTML =
       `<span class="pill ok">✓ ${s.ok}</span><span class="pill bad">✗ ${s.fail}</span>` +
       (s.learned ? `<span class="pill">nowe: ${s.learned}</span>` : "") +
@@ -430,7 +436,7 @@ class Trainer {
     if (this.physical()) peg.leds([]);
     this.apply(m);
     if (step.target && !failed) {
-      grade(step.edge, true, line);
+      if (this.mode !== "drill") grade(step.edge, true, line); // w przeglądzie całości dobra odpowiedź nie przesuwa terminu
       store.logReview(this.rep, true);
       this.stats.ok++;
       beep("ok");
@@ -558,19 +564,21 @@ class Trainer {
     });
   }
 
-  async run(rep, mode) {
+  async run(rep, mode, focus = null) {
     this.rep = rep;
     this.mode = mode;
+    this.focus = focus;
     this.usingBoard = peg.state === "on" && !!peg.occ;
     this.running = true;
     this.stats = { ok: 0, fail: 0, learned: 0 };
     this.retry = new Set();
-    this.root = null;
-    this.played = [];
+    // przy fokusie pierwsza linia może zacząć się od jego pozycji (albo od początku — na planszy do wyboru)
+    this.root = focus ? focus.root : null;
+    this.played = focus ? [...focus.path] : [];
     this.synced = false;
     this.lastMove = null;
     this.board.setOrientation(rep.color);
-    $("#t-title").textContent = `${rep.name} — ${mode === "learn" ? "nowe ruchy" : "powtórki"}`;
+    $("#t-title").textContent = `${rep.name}${focus ? ` › ${focus.name}` : ""} — ${{ learn: "nowe ruchy", review: "powtórki", drill: "przegląd całości" }[mode]}`;
     $("#t-hint").hidden = true;
     $("#t-nav-options").hidden = true;
     this.hintFor = null;
@@ -598,13 +606,14 @@ class Trainer {
     } catch {}
     let newLeft = Number(settings().newPerSession) || 10;
     let retryRound = false;
+    const drilled = new Set();
     try {
       if (!this.running) throw new Abort();
       if (trainAnalysis.explore) await this._wait((done, cleanup, pause, resume) => resume(() => done()));
       for (;;) {
         let line;
         if (mode === "learn") {
-          line = buildLine(rep, "learn", { prefer: this.played, preferRoot: this.root, limit: newLeft });
+          line = buildLine(rep, "learn", { prefer: this.played, preferRoot: this.root, limit: newLeft, focus });
           if (!line) break;
           const n = line.steps.filter((s) => s.target).length;
           await this.playLine(line, "show");
@@ -616,13 +625,15 @@ class Trainer {
           await this.playLine(quiz, "quiz");
           if (newLeft <= 0) break;
         } else {
-          line = buildLine(rep, "review", {
-            prefer: this.played, preferRoot: this.root, exclude: retryRound ? new Set() : this.retry,
+          line = buildLine(rep, mode, {
+            prefer: this.played, preferRoot: this.root, focus,
+            exclude: mode === "drill" ? drilled : retryRound ? new Set() : this.retry,
             now: Date.now() + (retryRound ? 5 * 60 * 1000 : 0),
           });
           if (!line) {
             if (!retryRound && this.retry.size) {
               retryRound = true;
+              if (mode === "drill") for (const k of this.retry) drilled.delete(k);
               this.retry.clear();
               this.status("Poprawka błędów", "Jeszcze raz ruchy, które się nie udały.", "warn");
               await this.sleep(1200);
@@ -631,6 +642,7 @@ class Trainer {
             break;
           }
           await this.playLine(line, "quiz");
+          if (mode === "drill") for (const st of line.steps) if (st.target) drilled.add(st.fen + st.uci);
         }
       }
       this.finish();
@@ -650,16 +662,18 @@ class Trainer {
 
   finish() {
     const s = this.stats;
-    const c = counts(this.rep);
+    const c = this.counts();
     beep("done");
     this.board.setArrows([]);
     $("#t-nav-options").hidden = true;
     this.hintFor = null;
     $("#t-hint").hidden = true;
-    if (this.mode === "learn")
+    if (this.mode === "drill")
+      this.status(s.ok + s.fail ? "Przegląd zrobiony 🎉" : "Nic do przeglądu", s.ok + s.fail ? `✓ ${s.ok}  ✗ ${s.fail}  (${Math.round((100 * s.ok) / (s.ok + s.fail))}%). Błędne ruchy wróciły do powtórek.` : `Najpierw poznaj nowe ruchy (${c.fresh}).`, "good");
+    else if (this.mode === "learn")
       this.status(s.learned ? `Poznane nowe ruchy: ${s.learned}` : "Brak nowych ruchów", `Sprawdzian: ✓ ${s.ok}  ✗ ${s.fail}. Nowych zostało: ${c.fresh}.`, "good");
     else
-      this.status(s.ok + s.fail ? "Powtórki zrobione 🎉" : "Nic do powtórki", s.ok + s.fail ? `✓ ${s.ok}  ✗ ${s.fail}  (${Math.round((100 * s.ok) / (s.ok + s.fail))}%)` : `Następne powtórki: ${nextDueText(this.rep)}. Możesz poznać nowe ruchy (${c.fresh}).`, "good");
+      this.status(s.ok + s.fail ? "Powtórki zrobione 🎉" : "Nic do powtórki", s.ok + s.fail ? `✓ ${s.ok}  ✗ ${s.fail}  (${Math.round((100 * s.ok) / (s.ok + s.fail))}%)` : `Następne powtórki: ${nextDueText(this.rep, this.focus && subtree(this.rep, focusKey(this.rep, this.focus)))}. Możesz poznać nowe ruchy (${c.fresh}).`, "good");
     this.renderStats();
     $("#t-stop").hidden = true;
     $("#t-back-rep").hidden = false;
@@ -667,10 +681,10 @@ class Trainer {
   }
 }
 
-function nextDueText(rep) {
+function nextDueText(rep, keys = null) {
   let min = Infinity;
-  for (const node of Object.values(rep.nodes))
-    if (isUserNode(rep, node))
+  for (const [key, node] of Object.entries(rep.nodes))
+    if ((!keys || keys.has(key)) && isUserNode(rep, node))
       for (const e of Object.values(node.moves)) if (e.srs && e.srs.due < min) min = e.srs.due;
   if (min === Infinity) return "brak";
   return whenText(min);
@@ -734,6 +748,7 @@ function renderHome() {
             <button data-act="browse">Edytuj</button>
             <button data-act="more" class="ghost" aria-label="Więcej">⋯</button>
           </div>
+          ${(r.focus || []).map((f) => focusHtml(r, f)).join("")}
           <div class="more-menu" hidden>
             <button data-act="add">Dodaj z PGN / Lichess</button>
             <button data-act="export">Eksport PGN</button>
@@ -751,6 +766,26 @@ function renderHome() {
     : "";
 }
 
+/** Fokus: wycinek repertuaru od wybranej pozycji (te same ruchy i postępy). */
+function focusHtml(rep, f) {
+  const key = focusKey(rep, f);
+  const line = lineText(rep.nodes[f.root]?.fen || START_FEN, f.sans || []);
+  const head = `<div class="focus-head"><b>🎯 ${esc(f.name)}</b>${f.name !== line ? `<span class="muted small">${esc(line)}</span>` : ""}` +
+    `<button class="ghost focus-del" data-act="focus-del" aria-label="Usuń fokus" title="Usuń fokus (ruchy i postępy zostają)">✕</button></div>`;
+  if (!key)
+    return `<div class="focus" data-focus="${esc(f.id)}">${head}
+      <p class="muted small">Tej pozycji nie ma już w repertuarze — usuń fokus albo dodaj ruchy z powrotem.</p></div>`;
+  const keys = subtree(rep, key);
+  const c = counts(rep, Date.now(), keys);
+  return `<div class="focus" data-focus="${esc(f.id)}">${head}
+    <div class="muted small">poznane ${c.learned}/${c.total} · nowe ${c.fresh} · następne powtórki: ${c.due ? "teraz" : nextDueText(rep, keys)}</div>
+    <div class="row">
+      <button class="primary" data-act="review" ${c.due ? "" : "disabled"}>Powtórki <b>${c.due}</b></button>
+      <button class="accent" data-act="learn" ${c.fresh ? "" : "disabled"}>Nowe <b>${Math.min(c.fresh, Number(settings().newPerSession) || 10)}</b></button>
+      <button data-act="drill" ${c.learned ? "" : "disabled"} title="Wszystkie poznane ruchy tego fragmentu, bez względu na termin powtórki">Przećwicz całość <b>${c.learned}</b></button>
+    </div></div>`;
+}
+
 async function onHomeClick(e) {
   const btn = e.target.closest("button[data-act]");
   if (!btn) return;
@@ -765,6 +800,18 @@ async function onHomeClick(e) {
     return renderHome();
   }
   if (!rep) return;
+  const focusEl = btn.closest(".focus");
+  const focus = focusEl && (rep.focus || []).find((f) => f.id === focusEl.dataset.focus);
+  if (focusEl) {
+    if (!focus) return;
+    if (act === "focus-del") {
+      rep.focus = rep.focus.filter((f) => f !== focus);
+      store.save();
+      return renderHome();
+    }
+    if (act === "review" || act === "learn" || act === "drill") return startTraining(rep, act, focus);
+    return;
+  }
   if (act === "review" || act === "learn") return startTraining(rep, act);
   if (act === "browse") return openBrowse(rep);
   if (act === "more") return (card.querySelector(".more-menu").hidden ^= true);
@@ -868,7 +915,7 @@ async function doImport() {
 
 // --- trening
 
-function startTraining(rep, mode) {
+function startTraining(rep, mode, focus = null) {
   trainAnalysis.open = false;
   trainAnalysis.eval = false;
   trainAnalysis.db = false;
@@ -886,7 +933,7 @@ function startTraining(rep, mode) {
   if (!peg.occ || peg.state !== "on")
     $("#t-mode").textContent = "Bez planszy — ruchy na ekranie (dotknij bierkę, potem pole).";
   else $("#t-mode").textContent = `Plansza: ${peg.device?.name || "Pegasus"}`;
-  trainer.run(rep, mode);
+  trainer.run(rep, mode, focus);
 }
 
 function renderTrainAnalysis(force = false) {
@@ -1160,6 +1207,7 @@ function renderBrowse() {
   };
 
   $("#b-title").textContent = rep.name;
+  $("#b-focus").hidden = !browse.path.length;
   $("#b-line").textContent = sans.length ? lineText(rootFen, sans) : "(pozycja wyjściowa)";
   $("#b-roots").hidden = rep.roots.length < 2;
   $("#b-roots").innerHTML = rep.roots.map((r, i) => `<option value="${esc(r)}" ${r === browse.root ? "selected" : ""}>Pozycja startowa ${i + 1}${r === posKey(START_FEN) ? " (zwykła)" : ""}</option>`).join("");
@@ -1670,6 +1718,18 @@ async function main() {
     toast("Pusty repertuar — wykonuj ruchy na szachownicy, żeby je dodać");
   });
   $("#b-back").addEventListener("click", () => { browse.path.pop(); renderBrowse(); });
+  $("#b-focus").addEventListener("click", () => {
+    const rep = browse.rep;
+    const { sans } = browseState();
+    if (!browse.path.length) return;
+    const line = lineText(rep.nodes[browse.root].fen, sans);
+    const name = prompt("Nazwa fokusu (pojawi się pod repertuarem na stronie głównej):", line);
+    if (name === null) return;
+    (rep.focus ||= []).push({ id: "f" + Date.now().toString(36), name: name.trim() || line, root: browse.root, path: [...browse.path], sans });
+    store.save();
+    go("home");
+    toast(`Fokus „${name.trim() || line}” jest pod repertuarem „${rep.name}”.`);
+  });
   $("#b-start").addEventListener("click", () => { browse.path = []; renderBrowse(); });
   $("#b-roots").addEventListener("change", (e) => { browse.root = e.target.value; browse.path = []; renderBrowse(); });
 
